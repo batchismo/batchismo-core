@@ -1,0 +1,19 @@
+[package]
+name = "bat-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bat-types = { path = "../bat-types" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = "0.1"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+toml = "0.8"
+dirs = "6"

@@ -1,0 +1,22 @@
+[package]
+name = "bat-agent"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bat-agent"
+path = "src/main.rs"
+
+[dependencies]
+bat-types = { path = "../bat-types" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures-util = "0.3"
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,33 @@
+# ─── Build output ─────────────────────────────────────────────────────────────
+/target
+crates/bat-shell/ui/dist
+
+# ─── Node / frontend deps ──────────────────────────────────────────────────────
+**/node_modules
+
+# ─── Claude Code local state ──────────────────────────────────────────────────
+.claude/
+
+# ─── Editor artifacts ─────────────────────────────────────────────────────────
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Project-specific generated files ─────────────────────────────────────────
+stderr.log
+stdout.log
+test-stream.json
+test-stream2.json
+
+# ─── Planning (gitignored; kept in project/) ──────────────────
+project/
+
+# ─── Secret files — never commit credentials or keys ──────────────────────────
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+config.local.toml

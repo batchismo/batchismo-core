@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Batchismo",
+  "version": "0.1.0",
+  "identifier": "dev.batchismo.app",
+  "build": {
+    "frontendDist": "ui/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev --prefix C:\\ai-projects\\batchismo\\crates\\bat-shell\\ui",
+    "beforeBuildCommand": "npm run build --prefix C:\\ai-projects\\batchismo\\crates\\bat-shell\\ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Batchismo",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico"],
+    "resources": {
+      "../../target/release/bat-agent.exe": "bat-agent.exe"
+    }
+  }
+}
