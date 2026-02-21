@@ -49,6 +49,7 @@ All components compile into a single Tauri binary. No external daemon. No separa
 | `bat-gateway` | library | Core gateway: session management, SQLite, config, event bus, IPC server |
 | `bat-agent` | binary | Agent process: LLM loop, tool execution, path policy enforcement |
 | `bat-shell` | Tauri app | Desktop shell: window, tray, React UI, Tauri commands |
+| `bat-tui` | binary | Terminal UI: ratatui + crossterm, same gateway, keyboard-driven |
 
 ---
 

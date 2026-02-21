@@ -168,6 +168,11 @@ impl Gateway {
         self.db.get_path_policies()
     }
 
+    /// Get all configured path policies (sync version for TUI init).
+    pub fn get_path_policies_sync(&self) -> Result<Vec<PathPolicy>> {
+        self.db.get_path_policies()
+    }
+
     /// Add a new path policy.
     pub async fn add_path_policy(&self, path: &str, access: &str, recursive: bool) -> Result<()> {
         let access_level = match access {

@@ -1,0 +1,18 @@
+[package]
+name = "bat-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Batchismo CLI — unified entry point for all Batchismo commands"
+
+[[bin]]
+name = "batchismo"
+path = "src/main.rs"
+
+[dependencies]
+bat-gateway = { path = "../bat-gateway" }
+bat-types = { path = "../bat-types" }
+bat-tui = { path = "../bat-tui" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

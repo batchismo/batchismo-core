@@ -4,6 +4,8 @@ members = [
     "crates/bat-gateway",
     "crates/bat-agent",
     "crates/bat-shell",
+    "crates/bat-tui",
+    "crates/bat-cli",
 ]
 resolver = "2"
 

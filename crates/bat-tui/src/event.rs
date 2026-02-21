@@ -1,0 +1,280 @@
+use std::time::Duration;
+
+use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use tokio::sync::broadcast;
+use tracing::warn;
+
+use bat_types::ipc::AgentToGateway;
+
+use crate::app::{App, InputMode, Screen, SettingsTab};
+
+pub struct EventHandler {
+    rx: tokio::sync::Mutex<broadcast::Receiver<AgentToGateway>>,
+}
+
+impl EventHandler {
+    pub fn new(rx: broadcast::Receiver<AgentToGateway>) -> Self {
+        Self {
+            rx: tokio::sync::Mutex::new(rx),
+        }
+    }
+
+    /// Poll for terminal input events and gateway events.
+    /// This is called once per frame from the main loop.
+    pub async fn handle(&self, app: &mut App) -> Result<()> {
+        // Drain all available gateway events (non-blocking)
+        {
+            let mut rx = self.rx.lock().await;
+            loop {
+                match rx.try_recv() {
+                    Ok(event) => app.handle_gateway_event(event),
+                    Err(broadcast::error::TryRecvError::Empty) => break,
+                    Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                        warn!("Event bus lagged by {n} events");
+                    }
+                    Err(broadcast::error::TryRecvError::Closed) => break,
+                }
+            }
+        }
+
+        // Poll for terminal input with a short timeout so we can
+        // keep draining gateway events for streaming
+        if event::poll(Duration::from_millis(50))? {
+            if let Event::Key(key) = event::read()? {
+                // Only handle key press events — ignore release/repeat
+                if key.kind == KeyEventKind::Press {
+                    handle_key(app, key).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+async fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    // Global keys
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        app.should_quit = true;
+        return Ok(());
+    }
+
+    // Help overlay toggle
+    if key.code == KeyCode::Char('?') && app.input_mode == InputMode::Normal && app.screen == Screen::Chat && app.input.is_empty() {
+        app.show_help = !app.show_help;
+        return Ok(());
+    }
+
+    if app.show_help {
+        // Any key dismisses help
+        app.show_help = false;
+        return Ok(());
+    }
+
+    // Editing mode in settings
+    if app.input_mode == InputMode::Editing {
+        return handle_editing_key(app, key).await;
+    }
+
+    match app.screen {
+        Screen::Chat => handle_chat_key(app, key).await,
+        Screen::Settings => handle_settings_key(app, key).await,
+    }
+}
+
+async fn handle_chat_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    match key.code {
+        KeyCode::Tab => {
+            app.screen = Screen::Settings;
+            app.settings_cursor = 0;
+        }
+        KeyCode::Enter => {
+            if !app.input.is_empty() {
+                if let Err(e) = app.send_message().await {
+                    warn!("Failed to send message: {e}");
+                }
+            }
+        }
+        KeyCode::Char(c) => {
+            app.input.push(c);
+        }
+        KeyCode::Backspace => {
+            app.input.pop();
+        }
+        KeyCode::Up => {
+            app.scroll_offset = app.scroll_offset.saturating_add(1);
+        }
+        KeyCode::Down => {
+            app.scroll_offset = app.scroll_offset.saturating_sub(1);
+        }
+        KeyCode::Esc => {
+            if !app.input.is_empty() {
+                app.input.clear();
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_settings_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    match key.code {
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            app.settings_tab = app.settings_tab.prev();
+            app.settings_cursor = 0;
+        }
+        KeyCode::Tab => {
+            app.settings_tab = app.settings_tab.next();
+            app.settings_cursor = 0;
+        }
+        KeyCode::Esc => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Up => match app.settings_tab {
+            SettingsTab::AgentConfig => {
+                app.settings_cursor = app.settings_cursor.saturating_sub(1);
+            }
+            SettingsTab::PathPolicies => {
+                app.path_cursor = app.path_cursor.saturating_sub(1);
+            }
+            SettingsTab::Tools => {
+                app.tools_cursor = app.tools_cursor.saturating_sub(1);
+            }
+            _ => {}
+        },
+        KeyCode::Down => match app.settings_tab {
+            SettingsTab::AgentConfig => {
+                app.settings_cursor = (app.settings_cursor + 1).min(3); // 4 fields: name, model, thinking, api key
+            }
+            SettingsTab::PathPolicies => {
+                let max = app.path_policies.len().saturating_sub(1);
+                app.path_cursor = (app.path_cursor + 1).min(max);
+            }
+            SettingsTab::Tools => {
+                let tools = app.gateway.get_tools_info();
+                let max = tools.len().saturating_sub(1);
+                app.tools_cursor = (app.tools_cursor + 1).min(max);
+            }
+            _ => {}
+        },
+        KeyCode::Enter => match app.settings_tab {
+            SettingsTab::AgentConfig => {
+                // Enter editing mode for the selected field
+                let cfg = app.gateway.get_config();
+                app.edit_buffer = match app.settings_cursor {
+                    0 => cfg.agent.name.clone(),
+                    1 => cfg.agent.model.clone(),
+                    2 => cfg.agent.thinking_level.clone(),
+                    3 => cfg.agent.api_key.clone().unwrap_or_default(),
+                    _ => String::new(),
+                };
+                app.input_mode = InputMode::Editing;
+            }
+            _ => {}
+        },
+        KeyCode::Char(' ') => match app.settings_tab {
+            SettingsTab::AgentConfig if app.settings_cursor == 3 => {
+                app.show_api_key = !app.show_api_key;
+            }
+            SettingsTab::PathPolicies => {
+                // Cycle access level for selected policy
+                if let Some(policy) = app.path_policies.get(app.path_cursor) {
+                    use bat_types::policy::AccessLevel;
+                    let new_access = match policy.access {
+                        AccessLevel::ReadOnly => "read-write",
+                        AccessLevel::ReadWrite => "write-only",
+                        AccessLevel::WriteOnly => "read-only",
+                    };
+                    let path_str = policy.path.to_string_lossy().to_string();
+                    let recursive = policy.recursive;
+                    // Delete and re-add with new access
+                    let _ = app.gateway.delete_path_policy(&path_str).await;
+                    let _ = app.gateway.add_path_policy(&path_str, new_access, recursive).await;
+                    app.refresh_path_policies().await;
+                }
+            }
+            SettingsTab::Tools => {
+                let tools = app.gateway.get_tools_info();
+                if let Some(tool) = tools.get(app.tools_cursor) {
+                    let _ = app.gateway.toggle_tool(&tool.name, !tool.enabled);
+                }
+            }
+            _ => {}
+        },
+        KeyCode::Char('d') => {
+            if app.settings_tab == SettingsTab::PathPolicies {
+                if let Some(policy) = app.path_policies.get(app.path_cursor) {
+                    let path_str = policy.path.to_string_lossy().to_string();
+                    let _ = app.gateway.delete_path_policy(&path_str).await;
+                    app.refresh_path_policies().await;
+                    if app.path_cursor > 0 {
+                        app.path_cursor -= 1;
+                    }
+                }
+            }
+        }
+        KeyCode::Char('a') => {
+            if app.settings_tab == SettingsTab::PathPolicies {
+                // Enter editing mode to type a new path
+                app.edit_buffer.clear();
+                app.input_mode = InputMode::Editing;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_editing_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    match key.code {
+        KeyCode::Enter => {
+            let value = app.edit_buffer.clone();
+            app.input_mode = InputMode::Normal;
+
+            match app.settings_tab {
+                SettingsTab::AgentConfig => {
+                    let mut cfg = app.gateway.get_config();
+                    match app.settings_cursor {
+                        0 => cfg.agent.name = value,
+                        1 => cfg.agent.model = value,
+                        2 => cfg.agent.thinking_level = value,
+                        3 => {
+                            cfg.agent.api_key = if value.is_empty() {
+                                None
+                            } else {
+                                Some(value)
+                            };
+                        }
+                        _ => {}
+                    }
+                    let _ = app.gateway.update_config(cfg);
+                }
+                SettingsTab::PathPolicies => {
+                    // Adding a new path policy
+                    if !value.is_empty() {
+                        let _ = app
+                            .gateway
+                            .add_path_policy(&value, "read-write", true)
+                            .await;
+                        app.refresh_path_policies().await;
+                    }
+                }
+                _ => {}
+            }
+            app.edit_buffer.clear();
+        }
+        KeyCode::Esc => {
+            app.input_mode = InputMode::Normal;
+            app.edit_buffer.clear();
+        }
+        KeyCode::Char(c) => {
+            app.edit_buffer.push(c);
+        }
+        KeyCode::Backspace => {
+            app.edit_buffer.pop();
+        }
+        _ => {}
+    }
+    Ok(())
+}

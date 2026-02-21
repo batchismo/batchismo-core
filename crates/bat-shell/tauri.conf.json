@@ -27,9 +27,18 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Vatché Chamlian",
     "icon": ["icons/icon.ico"],
     "resources": {
-      "../../target/release/bat-agent.exe": "bat-agent.exe"
+      "../../target/release/bat-agent.exe": "bat-agent.exe",
+      "../../target/release/batchismo.exe": "batchismo.exe"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "both",
+        "displayLanguageSelector": false,
+        "installerHooks": "nsis-hooks.nsi"
+      }
     }
   }
 }

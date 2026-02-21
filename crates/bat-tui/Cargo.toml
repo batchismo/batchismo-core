@@ -1,0 +1,24 @@
+[package]
+name = "bat-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Batchismo Terminal UI — keyboard-driven interface for the Batchismo agent platform"
+
+[lib]
+name = "bat_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bat-tui"
+path = "src/main.rs"
+
+[dependencies]
+bat-gateway = { path = "../bat-gateway" }
+bat-types = { path = "../bat-types" }
+anyhow = "1"
+crossterm = "0.28"
+ratatui = "0.29"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-width = "0.2"
