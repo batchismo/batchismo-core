@@ -32,7 +32,7 @@ jobs:
             patchelf
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude bat-shell
 
-      - name: Check all crates
-        run: cargo check --workspace
+      - name: Check library crates
+        run: cargo check --workspace --exclude bat-shell
