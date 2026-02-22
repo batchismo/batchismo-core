@@ -99,6 +99,9 @@ fn main() {
             commands::get_config,
             commands::update_config,
             commands::get_system_prompt,
+            commands::is_onboarding_complete,
+            commands::validate_api_key,
+            commands::complete_onboarding,
             commands::get_audit_logs,
             commands::get_audit_stats,
         ])

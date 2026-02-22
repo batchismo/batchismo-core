@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react'
 import type { SessionMeta, AppView } from './types'
 import { useChat } from './hooks/useChat'
-import { getSession } from './lib/tauri'
+import { getSession, isOnboardingComplete } from './lib/tauri'
 import { Sidebar } from './components/Sidebar'
 import { ChatPanel } from './components/ChatPanel'
 import { InputBar } from './components/InputBar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsPanel } from './components/settings/SettingsPanel'
 import { LogsPanel } from './components/LogsPanel'
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 
 export default function App() {
   const { messages, streamingText, agentStatus, error, send } = useChat()
   const [session, setSession] = useState<SessionMeta | null>(null)
   const [activeView, setActiveView] = useState<AppView>('chat')
+  const [onboarded, setOnboarded] = useState<boolean | null>(null) // null = loading
 
   useEffect(() => {
+    isOnboardingComplete().then(setOnboarded).catch(() => setOnboarded(true))
     getSession().then(setSession).catch(console.error)
   }, [])
 
@@ -24,6 +27,23 @@ export default function App() {
       getSession().then(setSession).catch(console.error)
     }
   }, [agentStatus])
+
+  // Loading state
+  if (onboarded === null) {
+    return <div className="flex h-screen bg-zinc-950 items-center justify-center text-zinc-500">Loading...</div>
+  }
+
+  // Onboarding wizard
+  if (!onboarded) {
+    return (
+      <OnboardingWizard
+        onComplete={() => {
+          setOnboarded(true)
+          getSession().then(setSession).catch(console.error)
+        }}
+      />
+    )
+  }
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">

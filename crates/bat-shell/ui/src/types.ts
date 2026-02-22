@@ -109,4 +109,11 @@ export interface AuditStats {
 }
 
 export type AppView = 'chat' | 'settings' | 'logs'
+
+// Onboarding
+export interface FolderAccess {
+  path: string
+  access: string
+  recursive: boolean
+}
 export type SettingsPage = 'path-policies' | 'tools' | 'agent-config' | 'about'

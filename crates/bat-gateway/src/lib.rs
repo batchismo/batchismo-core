@@ -265,6 +265,87 @@ impl Gateway {
         system_prompt::build_system_prompt(&cfg, &path_policies)
     }
 
+    // ─── Onboarding ───────────────────────────────────────────────────────
+
+    /// Check if onboarding has been completed.
+    pub fn is_onboarding_complete(&self) -> bool {
+        self.config.read().unwrap().agent.onboarding_complete
+    }
+
+    /// Validate an Anthropic API key by making a minimal API call.
+    pub async fn validate_api_key(key: &str) -> Result<()> {
+        let client = reqwest::Client::new();
+        let resp = client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&serde_json::json!({
+                "model": "claude-haiku-4-5-20241022",
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "hi"}]
+            }))
+            .send()
+            .await
+            .context("Failed to reach Anthropic API")?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            if status.as_u16() == 401 {
+                anyhow::bail!("Invalid API key")
+            } else {
+                anyhow::bail!("API error ({}): {}", status, body)
+            }
+        }
+    }
+
+    /// Complete onboarding: set name, API key, path policies, write IDENTITY.md.
+    pub async fn complete_onboarding(
+        &self,
+        name: String,
+        api_key: String,
+        folders: Vec<(String, String, bool)>, // (path, access, recursive)
+    ) -> Result<()> {
+        // Update config
+        {
+            let mut cfg = self.config.write().unwrap();
+            cfg.agent.name = name.clone();
+            cfg.agent.api_key = Some(api_key);
+            cfg.agent.onboarding_complete = true;
+            config::save_config(&cfg)?;
+        }
+
+        // Add path policies
+        for (path, access, recursive) in &folders {
+            self.add_path_policy(path, access, *recursive).await?;
+        }
+
+        // Write IDENTITY.md
+        let workspace_dir = config::workspace_path();
+        std::fs::create_dir_all(&workspace_dir)?;
+        let identity_path = workspace_dir.join("IDENTITY.md");
+        let identity_content = format!(
+            "# Identity\n\nName: {}\n\nYou are {}, a personal AI agent running on this computer. \
+             You help your user by reading and writing files, answering questions, and completing tasks.\n",
+            name, name
+        );
+        std::fs::write(&identity_path, identity_content)?;
+
+        self.log_event(
+            AuditLevel::Info,
+            AuditCategory::Config,
+            "onboarding_complete",
+            &format!("Onboarding completed — agent named '{name}'"),
+            None,
+            None,
+        );
+
+        Ok(())
+    }
+
     // ─── Audit / Observability ────────────────────────────────────────────
 
     /// Log a structured audit event. Writes to SQLite and broadcasts to the event bus.

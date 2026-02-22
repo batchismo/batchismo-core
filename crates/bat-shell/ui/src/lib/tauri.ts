@@ -39,3 +39,13 @@ export const getAuditLogs = (filter: AuditFilter): Promise<AuditEntry[]> =>
 
 export const getAuditStats = (): Promise<AuditStats> =>
   invoke('get_audit_stats')
+
+// Onboarding
+export const isOnboardingComplete = (): Promise<boolean> =>
+  invoke('is_onboarding_complete')
+
+export const validateApiKey = (key: string): Promise<boolean> =>
+  invoke('validate_api_key', { key })
+
+export const completeOnboarding = (name: string, apiKey: string, folders: [string, string, boolean][]): Promise<void> =>
+  invoke('complete_onboarding', { name, apiKey, folders })

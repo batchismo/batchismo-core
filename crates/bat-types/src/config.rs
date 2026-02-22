@@ -22,6 +22,9 @@ pub struct AgentConfig {
     /// Tools disabled by the user via the Settings panel.
     #[serde(default)]
     pub disabled_tools: Vec<String>,
+    /// Whether the onboarding wizard has been completed.
+    #[serde(default)]
+    pub onboarding_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +56,7 @@ impl Default for BatConfig {
                 thinking_level: "medium".to_string(),
                 api_key: None,
                 disabled_tools: vec![],
+                onboarding_complete: false,
             },
             gateway: GatewayConfig {
                 port: 19000,

@@ -137,6 +137,40 @@ pub fn get_system_prompt(state: State<'_, AppState>) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+// ─── Onboarding ────────────────────────────────────────────────────────
+
+/// Check if onboarding has been completed.
+#[tauri::command]
+pub fn is_onboarding_complete(state: State<'_, AppState>) -> bool {
+    state.gateway.is_onboarding_complete()
+}
+
+/// Validate an Anthropic API key.
+#[tauri::command]
+pub async fn validate_api_key(key: String) -> Result<bool, String> {
+    bat_gateway::Gateway::validate_api_key(&key)
+        .await
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+/// Complete the onboarding wizard.
+#[tauri::command]
+pub async fn complete_onboarding(
+    name: String,
+    api_key: String,
+    folders: Vec<(String, String, bool)>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .gateway
+        .complete_onboarding(name, api_key, folders)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ─── Audit ─────────────────────────────────────────────────────────────
+
 /// Query audit log entries with optional filters.
 #[tauri::command]
 pub fn get_audit_logs(filter: AuditFilter, state: State<'_, AppState>) -> Result<Vec<AuditEntry>, String> {
