@@ -111,6 +111,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn case_insensitive_match() {
         let p = policy(r"C:\Users\Test\Documents", AccessLevel::ReadWrite, true);
         // Different casing should still match
@@ -119,6 +120,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn case_insensitive_non_recursive() {
         let p = policy(r"C:\Users\Test\Docs", AccessLevel::ReadWrite, false);
         assert!(p.allows(Path::new(r"C:\users\test\docs\file.txt"), true));
@@ -126,6 +128,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn win_prefix_stripped() {
         let p = policy(r"C:\Users\Test", AccessLevel::ReadWrite, true);
         assert!(p.allows(Path::new(r"\\?\C:\Users\Test\file.txt"), true));
