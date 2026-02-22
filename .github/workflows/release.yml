@@ -19,10 +19,10 @@ jobs:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             label: windows-x64
-          - platform: macos-latest
+          - platform: macos-15
             target: aarch64-apple-darwin
             label: macos-arm64
-          - platform: macos-13
+          - platform: macos-15
             target: x86_64-apple-darwin
             label: macos-x64
           - platform: ubuntu-22.04
