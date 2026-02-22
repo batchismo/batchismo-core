@@ -1,20 +1,97 @@
-/// IPC server — Windows named pipes with NDJSON protocol.
+/// IPC server — platform-specific transport with NDJSON protocol.
 ///
-/// The gateway creates a named pipe, spawns bat-agent as a child process,
+/// - Windows: named pipes (`\\.\pipe\bat-agent-{session_id}`)
+/// - Unix (macOS/Linux): Unix domain sockets (`/tmp/bat-agent-{session_id}.sock`)
+///
+/// The gateway creates a server, spawns bat-agent as a child process,
 /// waits for the agent to connect, then communicates via NDJSON messages.
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf};
-use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
 
 use bat_types::ipc::{AgentToGateway, GatewayToAgent};
 
+// ─── Platform-specific transport ──────────────────────────────────────────────
+
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::*;
+    use tokio::io::{ReadHalf, WriteHalf};
+    use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+
+    pub type Reader = BufReader<ReadHalf<NamedPipeServer>>;
+    pub type Writer = WriteHalf<NamedPipeServer>;
+
+    pub fn pipe_address(session_id: Uuid) -> String {
+        format!(r"\\.\pipe\bat-agent-{}", session_id)
+    }
+
+    pub struct PipeServer(pub NamedPipeServer);
+
+    pub fn create_server(session_id: Uuid) -> Result<(PipeServer, String)> {
+        let addr = pipe_address(session_id);
+        let server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&addr)
+            .with_context(|| format!("Failed to create named pipe: {addr}"))?;
+        Ok((PipeServer(server), addr))
+    }
+
+    pub async fn wait_for_connection(server: PipeServer) -> Result<(Reader, Writer)> {
+        server.0
+            .connect()
+            .await
+            .context("Failed while waiting for agent to connect to pipe")?;
+        let (read_half, write_half) = tokio::io::split(server.0);
+        Ok((BufReader::new(read_half), write_half))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+mod platform {
+    use super::*;
+    use tokio::io::{ReadHalf, WriteHalf};
+    use tokio::net::UnixListener;
+    use tokio::net::UnixStream;
+
+    pub type Reader = BufReader<ReadHalf<UnixStream>>;
+    pub type Writer = WriteHalf<UnixStream>;
+
+    pub fn pipe_address(session_id: Uuid) -> String {
+        format!("/tmp/bat-agent-{}.sock", session_id)
+    }
+
+    pub struct PipeServer {
+        pub listener: UnixListener,
+        pub path: String,
+    }
+
+    pub fn create_server(session_id: Uuid) -> Result<(PipeServer, String)> {
+        let addr = pipe_address(session_id);
+        // Remove stale socket file if it exists
+        let _ = std::fs::remove_file(&addr);
+        let listener = UnixListener::bind(&addr)
+            .with_context(|| format!("Failed to create Unix socket: {addr}"))?;
+        Ok((PipeServer { listener, path: addr.clone() }, addr))
+    }
+
+    pub async fn wait_for_connection(server: PipeServer) -> Result<(Reader, Writer)> {
+        let (stream, _) = server.listener.accept()
+            .await
+            .context("Failed while waiting for agent to connect to socket")?;
+        let (read_half, write_half) = tokio::io::split(stream);
+        Ok((BufReader::new(read_half), write_half))
+    }
+}
+
+// ─── Cross-platform API ───────────────────────────────────────────────────────
+
 /// A bidirectional NDJSON channel to a connected agent.
 pub struct AgentPipe {
-    writer: WriteHalf<NamedPipeServer>,
-    reader: BufReader<ReadHalf<NamedPipeServer>>,
+    writer: platform::Writer,
+    reader: platform::Reader,
 }
 
 impl AgentPipe {
@@ -44,39 +121,19 @@ impl AgentPipe {
     }
 }
 
-/// Returns the Windows named pipe name for a given session ID.
-pub fn agent_pipe_name(session_id: Uuid) -> String {
-    format!(r"\\.\pipe\bat-agent-{}", session_id)
+/// Create an IPC server for the given session.
+/// Returns the server handle and the address string (pipe name or socket path).
+pub fn create_pipe_server(session_id: Uuid) -> Result<(platform::PipeServer, String)> {
+    platform::create_server(session_id)
 }
 
-/// Create a named pipe server (non-blocking — agent connects after this returns).
-///
-/// Returns the server handle and the pipe name. The caller must call
-/// `spawn_agent()` with the pipe name BEFORE calling `wait_for_agent()`,
-/// otherwise the server will wait forever.
-pub fn create_pipe_server(session_id: Uuid) -> Result<(NamedPipeServer, String)> {
-    let pipe_name = agent_pipe_name(session_id);
-    let server = ServerOptions::new()
-        .first_pipe_instance(true)
-        .create(&pipe_name)
-        .with_context(|| format!("Failed to create named pipe: {pipe_name}"))?;
-    Ok((server, pipe_name))
+/// Wait for the agent to connect, then return a bidirectional channel.
+pub async fn wait_for_agent(server: platform::PipeServer) -> Result<AgentPipe> {
+    let (reader, writer) = platform::wait_for_connection(server).await?;
+    Ok(AgentPipe { writer, reader })
 }
 
-/// Wait for the agent to connect to the pipe, then return a bidirectional channel.
-pub async fn wait_for_agent(server: NamedPipeServer) -> Result<AgentPipe> {
-    server
-        .connect()
-        .await
-        .context("Failed while waiting for agent to connect to pipe")?;
-    let (read_half, write_half) = tokio::io::split(server);
-    Ok(AgentPipe {
-        writer: write_half,
-        reader: BufReader::new(read_half),
-    })
-}
-
-/// Spawn the bat-agent child process, pointed at the given pipe.
+/// Spawn the bat-agent child process, pointed at the given pipe/socket.
 /// The API key is passed via environment variable.
 pub fn spawn_agent(pipe_name: &str, api_key: &str) -> Result<tokio::process::Child> {
     let agent_exe = find_agent_binary()?;
@@ -85,15 +142,14 @@ pub fn spawn_agent(pipe_name: &str, api_key: &str) -> Result<tokio::process::Chi
         .arg(pipe_name)
         .env("ANTHROPIC_API_KEY", api_key);
 
-    // On Windows, prevent the agent from flashing a console window
     // Capture stderr so we can log agent errors
     cmd.stderr(std::process::Stdio::piped());
 
     // On Windows, prevent the agent from flashing a console window.
-    // tokio::process::Command re-exports the Windows CommandExt trait.
     #[cfg(target_os = "windows")]
     {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // tokio::process::Command re-exports the Windows CommandExt trait
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
@@ -112,21 +168,33 @@ fn find_agent_binary() -> Result<PathBuf> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Current exe has no parent directory"))?;
 
-    // 1. Same directory as bat-shell.exe (cargo build output)
-    let candidate = dir.join("bat-agent.exe");
-    if candidate.exists() {
-        return Ok(candidate);
-    }
-    let candidate = dir.join("bat-agent");
-    if candidate.exists() {
-        return Ok(candidate);
-    }
+    let names: &[&str] = if cfg!(target_os = "windows") {
+        &["bat-agent.exe"]
+    } else {
+        &["bat-agent"]
+    };
 
-    // 2. Tauri resource directory (installed app)
-    // MSI installs resources next to the exe; NSIS puts them in a resources/ subfolder
-    let candidate = dir.join("resources").join("bat-agent.exe");
-    if candidate.exists() {
-        return Ok(candidate);
+    for name in names {
+        // 1. Same directory
+        let candidate = dir.join(name);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+
+        // 2. Tauri resource directory
+        let candidate = dir.join("resources").join(name);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+
+        // 3. macOS app bundle Resources
+        #[cfg(target_os = "macos")]
+        {
+            let candidate = dir.join("../Resources").join(name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
     }
 
     anyhow::bail!(

@@ -5,7 +5,6 @@ mod tools;
 
 use anyhow::{Context, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::windows::named_pipe::ClientOptions;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
@@ -37,21 +36,23 @@ fn find_arg(args: &[String], flag: &str) -> Option<String> {
         .map(|w| w[1].clone())
 }
 
-// ─── Pipe client ─────────────────────────────────────────────────────────────
+// ─── Platform-specific pipe client ───────────────────────────────────────────
 
-struct GatewayPipe {
-    writer: tokio::io::WriteHalf<tokio::net::windows::named_pipe::NamedPipeClient>,
-    reader: BufReader<tokio::io::ReadHalf<tokio::net::windows::named_pipe::NamedPipeClient>>,
-}
+#[cfg(target_os = "windows")]
+mod pipe_client {
+    use super::*;
+    use tokio::net::windows::named_pipe::ClientOptions;
 
-impl GatewayPipe {
-    /// Connect to the gateway's named pipe, retrying briefly on failure.
-    async fn connect(pipe_name: &str) -> Result<Self> {
+    type PipeClient = tokio::net::windows::named_pipe::NamedPipeClient;
+
+    pub type Writer = tokio::io::WriteHalf<PipeClient>;
+    pub type Reader = BufReader<tokio::io::ReadHalf<PipeClient>>;
+
+    pub async fn connect(pipe_name: &str) -> anyhow::Result<(Reader, Writer)> {
         let client = loop {
             match ClientOptions::new().open(pipe_name) {
                 Ok(c) => break c,
                 Err(e) => {
-                    // Pipe not ready yet — server may still be setting up
                     let code = e.raw_os_error().unwrap_or(0);
                     if code == 231 || code == 2 {
                         // ERROR_PIPE_BUSY or FILE_NOT_FOUND — retry
@@ -63,10 +64,50 @@ impl GatewayPipe {
             }
         };
         let (r, w) = tokio::io::split(client);
-        Ok(Self {
-            writer: w,
-            reader: BufReader::new(r),
-        })
+        Ok((BufReader::new(r), w))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+mod pipe_client {
+    use super::*;
+    use tokio::net::UnixStream;
+
+    pub type Writer = tokio::io::WriteHalf<UnixStream>;
+    pub type Reader = BufReader<tokio::io::ReadHalf<UnixStream>>;
+
+    pub async fn connect(pipe_name: &str) -> anyhow::Result<(Reader, Writer)> {
+        // Retry briefly in case the socket isn't ready yet
+        let stream = loop {
+            match UnixStream::connect(pipe_name).await {
+                Ok(s) => break s,
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound
+                        || e.kind() == std::io::ErrorKind::ConnectionRefused
+                    {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    } else {
+                        return Err(e).context("Failed to connect to gateway socket");
+                    }
+                }
+            }
+        };
+        let (r, w) = tokio::io::split(stream);
+        Ok((BufReader::new(r), w))
+    }
+}
+
+// ─── Cross-platform pipe wrapper ─────────────────────────────────────────────
+
+struct GatewayPipe {
+    writer: pipe_client::Writer,
+    reader: pipe_client::Reader,
+}
+
+impl GatewayPipe {
+    async fn connect(pipe_name: &str) -> Result<Self> {
+        let (reader, writer) = pipe_client::connect(pipe_name).await?;
+        Ok(Self { writer, reader })
     }
 
     async fn send(&mut self, msg: &AgentToGateway) -> Result<()> {
