@@ -1,8 +1,5 @@
 {
   "bundle": {
-    "resources": {
-      "../../target/release/bat-agent": "bat-agent",
-      "../../target/release/batchismo": "batchismo"
-    }
+    "resources": {}
   }
 }

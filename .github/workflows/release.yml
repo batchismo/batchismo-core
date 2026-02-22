@@ -69,12 +69,12 @@ jobs:
       - name: Build bat-agent
         run: cargo build -p bat-agent --release --target ${{ matrix.target }}
 
-      # Copy binaries to where tauri.conf.json expects them
-      # (resources point to ../../target/release/)
+      # Copy binaries to where the resource config expects them
       - name: Stage binaries for bundling (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path "target/release" -Force
           Copy-Item "target/${{ matrix.target }}/release/bat-agent.exe" "target/release/bat-agent.exe" -Force
           Copy-Item "target/${{ matrix.target }}/release/batchismo.exe" "target/release/batchismo.exe" -Force
 
@@ -85,14 +85,30 @@ jobs:
           cp "target/${{ matrix.target }}/release/bat-agent" "target/release/bat-agent" || true
           cp "target/${{ matrix.target }}/release/batchismo" "target/release/batchismo" || true
 
-      # Build the Tauri app
+      # Build the Tauri app with resource paths injected at build time
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 
-      - name: Build Tauri app
+      - name: Build Tauri app (Windows)
+        if: matrix.platform == 'windows-latest'
         run: cargo tauri build --target ${{ matrix.target }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_CONFIG: '{"bundle":{"resources":{"../../target/release/bat-agent.exe":"bat-agent.exe","../../target/release/batchismo.exe":"batchismo.exe"}}}'
+
+      - name: Build Tauri app (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: cargo tauri build --target ${{ matrix.target }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_CONFIG: '{"bundle":{"resources":{"../../target/release/bat-agent":"bat-agent","../../target/release/batchismo":"batchismo"}}}'
+
+      - name: Build Tauri app (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: cargo tauri build --target ${{ matrix.target }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_CONFIG: '{"bundle":{"resources":{"../../target/release/bat-agent":"bat-agent","../../target/release/batchismo":"batchismo"}}}'
 
       # Upload artifacts per platform
       - name: Upload Windows artifacts

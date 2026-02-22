@@ -1,9 +1,6 @@
 {
   "bundle": {
-    "resources": {
-      "../../target/release/bat-agent.exe": "bat-agent.exe",
-      "../../target/release/batchismo.exe": "batchismo.exe"
-    },
+    "resources": {},
     "windows": {
       "nsis": {
         "installMode": "both",
