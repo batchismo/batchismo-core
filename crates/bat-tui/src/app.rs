@@ -10,6 +10,7 @@ use bat_types::policy::PathPolicy;
 pub enum Screen {
     Chat,
     Settings,
+    Logs,
 }
 
 /// Settings sub-pages.
@@ -92,6 +93,10 @@ pub struct App {
 
     // Editing buffers
     pub edit_buffer: String,
+
+    // Audit log
+    pub audit_entries: Vec<String>,
+    pub logs_scroll: usize,
 }
 
 impl App {
@@ -122,6 +127,9 @@ impl App {
             tools_cursor: 0,
 
             edit_buffer: String::new(),
+
+            audit_entries: Vec::new(),
+            logs_scroll: 0,
         }
     }
 
@@ -171,6 +179,15 @@ impl App {
                     format!("⚠️ {message}"),
                 );
                 self.messages.push(err_msg);
+            }
+            AgentToGateway::AuditLog { level, category, summary, .. } => {
+                // Store audit events for the logs screen
+                self.audit_entries.push(format!(
+                    "[{}] [{}] {}",
+                    level.to_uppercase(),
+                    category.to_uppercase(),
+                    summary,
+                ));
             }
         }
     }

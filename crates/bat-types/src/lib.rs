@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod message;
 pub mod session;
 pub mod policy;

@@ -66,6 +66,16 @@ fn main() {
                 }
             });
 
+            // Log gateway startup
+            gateway.log_event(
+                bat_types::audit::AuditLevel::Info,
+                bat_types::audit::AuditCategory::Gateway,
+                "gateway_start",
+                "Batchismo gateway started",
+                None,
+                None,
+            );
+
             app.manage(AppState { gateway });
 
             // Open devtools automatically when RUST_LOG is set (any build)
@@ -89,6 +99,8 @@ fn main() {
             commands::get_config,
             commands::update_config,
             commands::get_system_prompt,
+            commands::get_audit_logs,
+            commands::get_audit_stats,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Batchismo");

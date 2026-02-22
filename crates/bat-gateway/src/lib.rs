@@ -16,6 +16,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use bat_types::{
+    audit::{AuditCategory, AuditEntry, AuditFilter, AuditLevel, AuditStats},
     config::BatConfig,
     ipc::{AgentToGateway, GatewayToAgent},
     message::Message,
@@ -122,6 +123,18 @@ impl Gateway {
         let session_manager = Arc::clone(&self.session_manager);
         let content_owned = content.to_string();
 
+        // Log the user message event
+        self.log_event(
+            AuditLevel::Info,
+            AuditCategory::Gateway,
+            "user_message",
+            &format!("User message received ({} chars)", content.len()),
+            Some(&session.id.to_string()),
+            None,
+        );
+
+        let db = Arc::clone(&self.db);
+
         // Spawn the agent turn in a background task
         tokio::spawn(async move {
             event_bus.send(AgentToGateway::TextDelta {
@@ -139,6 +152,7 @@ impl Gateway {
                 api_key,
                 event_bus.clone(),
                 session_manager,
+                db,
             )
             .await
             {
@@ -250,9 +264,78 @@ impl Gateway {
         let path_policies = self.db.get_path_policies()?;
         system_prompt::build_system_prompt(&cfg, &path_policies)
     }
+
+    // ─── Audit / Observability ────────────────────────────────────────────
+
+    /// Log a structured audit event. Writes to SQLite and broadcasts to the event bus.
+    pub fn log_event(
+        &self,
+        level: AuditLevel,
+        category: AuditCategory,
+        event: &str,
+        summary: &str,
+        session_id: Option<&str>,
+        detail_json: Option<&str>,
+    ) {
+        let ts = chrono::Utc::now().to_rfc3339();
+
+        // Persist to DB (best-effort — don't crash the gateway over logging)
+        if let Err(e) = self.db.insert_audit_log(
+            &ts,
+            session_id,
+            level,
+            category,
+            event,
+            summary,
+            detail_json,
+        ) {
+            error!("Failed to write audit log: {}", e);
+        }
+
+        // Broadcast to UI subscribers
+        self.event_bus.send(AgentToGateway::AuditLog {
+            level: level.to_string(),
+            category: category.to_string(),
+            event: event.to_string(),
+            summary: summary.to_string(),
+            detail_json: detail_json.map(|s| s.to_string()),
+        });
+    }
+
+    /// Query audit log entries.
+    pub fn query_audit_log(&self, filter: &AuditFilter) -> Result<Vec<AuditEntry>> {
+        self.db.query_audit_log(filter)
+    }
+
+    /// Get audit log summary statistics.
+    pub fn get_audit_stats(&self) -> Result<AuditStats> {
+        self.db.get_audit_stats()
+    }
 }
 
 // ─── Agent turn runner ────────────────────────────────────────────────────────
+
+/// Helper to log an audit event from the agent turn (fire-and-forget to DB + event bus).
+fn audit(
+    db: &Database,
+    event_bus: &EventBus,
+    level: AuditLevel,
+    category: AuditCategory,
+    event: &str,
+    summary: &str,
+    session_id: Option<&str>,
+    detail_json: Option<&str>,
+) {
+    let ts = chrono::Utc::now().to_rfc3339();
+    let _ = db.insert_audit_log(&ts, session_id, level, category, event, summary, detail_json);
+    event_bus.send(AgentToGateway::AuditLog {
+        level: level.to_string(),
+        category: category.to_string(),
+        event: event.to_string(),
+        summary: summary.to_string(),
+        detail_json: detail_json.map(|s| s.to_string()),
+    });
+}
 
 async fn run_agent_turn(
     session_id: Uuid,
@@ -265,7 +348,10 @@ async fn run_agent_turn(
     api_key: String,
     event_bus: EventBus,
     session_manager: Arc<SessionManager>,
+    db: Arc<Database>,
 ) -> Result<()> {
+    let sid = session_id.to_string();
+
     // 1. Create named pipe server
     let (server, pipe_name) = ipc::create_pipe_server(session_id)
         .context("Failed to create agent pipe")?;
@@ -276,7 +362,10 @@ async fn run_agent_turn(
     let mut child = ipc::spawn_agent(&pipe_name, &api_key)
         .context("Failed to spawn bat-agent")?;
 
-    info!("Spawned bat-agent (pid: {:?})", child.id());
+    let pid = child.id().unwrap_or(0);
+    info!("Spawned bat-agent (pid: {})", pid);
+    audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Agent, "agent_spawn",
+        &format!("Agent spawned (pid: {pid}, model: {model})"), Some(&sid), None);
 
     // 3. Wait for agent to connect
     let mut pipe = ipc::wait_for_agent(server)
@@ -284,6 +373,8 @@ async fn run_agent_turn(
         .context("Failed while waiting for agent connection")?;
 
     info!("Agent connected");
+    audit(&db, &event_bus, AuditLevel::Debug, AuditCategory::Ipc, "pipe_connected",
+        "Agent connected to IPC pipe", Some(&sid), None);
 
     // 4. Send Init
     pipe.send(&GatewayToAgent::Init {
@@ -313,6 +404,33 @@ async fn run_agent_turn(
                     AgentToGateway::TurnComplete { .. } | AgentToGateway::Error { .. }
                 );
 
+                // Audit tool call events
+                match &event {
+                    AgentToGateway::ToolCallStart { tool_call } => {
+                        audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Tool, "tool_call_start",
+                            &format!("Tool call: {}", tool_call.name), Some(&sid),
+                            Some(&serde_json::to_string(&tool_call.input).unwrap_or_default()));
+                    }
+                    AgentToGateway::ToolCallResult { result } => {
+                        let status = if result.is_error { "error" } else { "success" };
+                        let summary = format!("Tool result ({}): {} chars", status, result.content.len());
+                        audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Tool, "tool_call_result",
+                            &summary, Some(&sid), None);
+                    }
+                    AgentToGateway::TurnComplete { ref message } => {
+                        let tokens = format!("in: {}, out: {}",
+                            message.token_input.unwrap_or(0),
+                            message.token_output.unwrap_or(0));
+                        audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Agent, "turn_complete",
+                            &format!("Turn complete ({tokens})"), Some(&sid), None);
+                    }
+                    AgentToGateway::Error { message } => {
+                        audit(&db, &event_bus, AuditLevel::Error, AuditCategory::Agent, "agent_error",
+                            message, Some(&sid), None);
+                    }
+                    _ => {}
+                }
+
                 // Persist TurnComplete message to database
                 if let AgentToGateway::TurnComplete { ref message } = event {
                     session_manager
@@ -334,6 +452,8 @@ async fn run_agent_turn(
             }
             None => {
                 // Pipe closed without TurnComplete
+                audit(&db, &event_bus, AuditLevel::Error, AuditCategory::Ipc, "pipe_disconnected",
+                    "Agent disconnected unexpectedly", Some(&sid), None);
                 event_bus.send(AgentToGateway::Error {
                     message: "Agent disconnected unexpectedly".to_string(),
                 });
@@ -350,11 +470,20 @@ async fn run_agent_turn(
             if code != 0 {
                 let stderr = String::from_utf8_lossy(&out.stderr);
                 error!("Agent process exited with code {}: {}", code, stderr.trim());
+                audit(&db, &event_bus, AuditLevel::Error, AuditCategory::Agent, "agent_exit",
+                    &format!("Agent exited with code {code}"), Some(&sid),
+                    Some(&format!("{{\"stderr\":\"{}\"}}", stderr.trim().replace('"', "\\\""))));
             } else {
                 info!("Agent process exited cleanly");
+                audit(&db, &event_bus, AuditLevel::Debug, AuditCategory::Agent, "agent_exit",
+                    "Agent exited cleanly", Some(&sid), None);
             }
         }
-        Err(e) => error!("Failed to wait for agent process: {}", e),
+        Err(e) => {
+            error!("Failed to wait for agent process: {}", e);
+            audit(&db, &event_bus, AuditLevel::Error, AuditCategory::Agent, "agent_exit",
+                &format!("Failed to wait for agent: {e}"), Some(&sid), None);
+        }
     }
 
     Ok(())

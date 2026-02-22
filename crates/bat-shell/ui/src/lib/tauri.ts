@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats } from '../types'
 
 export const sendMessage = (content: string): Promise<void> =>
   invoke('send_message', { content })
@@ -33,3 +33,9 @@ export const updateConfig = (config: BatConfig): Promise<void> =>
 
 export const getSystemPrompt = (): Promise<string> =>
   invoke('get_system_prompt')
+
+export const getAuditLogs = (filter: AuditFilter): Promise<AuditEntry[]> =>
+  invoke('get_audit_logs', { filter })
+
+export const getAuditStats = (): Promise<AuditStats> =>
+  invoke('get_audit_stats')

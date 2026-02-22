@@ -1,5 +1,6 @@
 mod chat;
 mod help;
+mod logs;
 mod settings;
 
 use ratatui::prelude::*;
@@ -11,6 +12,7 @@ pub fn render(f: &mut Frame, app: &App) {
     match app.screen {
         Screen::Chat => chat::render(f, app),
         Screen::Settings => settings::render(f, app),
+        Screen::Logs => logs::render(f, app),
     }
 
     // Help overlay on top of everything

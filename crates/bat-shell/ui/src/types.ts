@@ -51,6 +51,7 @@ export type BatEvent =
   | { type: 'ToolCallResult'; result: ToolResult }
   | { type: 'TurnComplete'; message: Message }
   | { type: 'Error'; message: string }
+  | { type: 'AuditLog'; level: string; category: string; event: string; summary: string; detail_json: string | null }
 
 // Settings types
 export interface ToolInfo {
@@ -75,5 +76,37 @@ export interface BatConfig {
   paths: PathPolicy[]
 }
 
-export type AppView = 'chat' | 'settings'
+// Audit log types
+export type AuditLevel = 'debug' | 'info' | 'warn' | 'error'
+export type AuditCategory = 'agent' | 'tool' | 'gateway' | 'ipc' | 'config'
+
+export interface AuditEntry {
+  id: number
+  ts: string
+  sessionId: string | null
+  level: AuditLevel
+  category: AuditCategory
+  event: string
+  summary: string
+  detailJson: string | null
+}
+
+export interface AuditFilter {
+  level?: AuditLevel | null
+  category?: AuditCategory | null
+  sessionId?: string | null
+  since?: string | null
+  until?: string | null
+  search?: string | null
+  limit?: number | null
+  offset?: number | null
+}
+
+export interface AuditStats {
+  total: number
+  byLevel: { debug: number; info: number; warn: number; error: number }
+  byCategory: { agent: number; tool: number; gateway: number; ipc: number; config: number }
+}
+
+export type AppView = 'chat' | 'settings' | 'logs'
 export type SettingsPage = 'path-policies' | 'tools' | 'agent-config' | 'about'

@@ -1,8 +1,8 @@
 # Batchismo
 
-A locally-installed, OS-native AI agent platform that runs persistently on your machine. Batchismo acts as a personal AI that does real work — executing tasks, managing files, and coordinating parallel subagents — while continuously learning how you work over time.
+A locally-installed, OS-native AI agent platform that runs persistently on your machine. Batchismo acts as a personal AI that does real work; executing tasks, managing files, and coordinating parallel subagents. While continuously learning how you work over time.
 
-> **No terminal. No Docker. No config files to hand-edit.** Install, connect your API key, point it at your folders, and have a working personal AI agent within minutes.
+> **No Docker. No config files to hand-edit.** Install, connect your API key, point it at your folders, and have a working personal AI agent within minutes.
 
 ---
 
@@ -11,9 +11,15 @@ A locally-installed, OS-native AI agent platform that runs persistently on your 
 - **Executes real tasks** on your machine within user-defined path boundaries
 - **Learns your patterns** and updates its own behavior files over time (MEMORY.md, PATTERNS.md)
 - **Runs subagents concurrently** while you continue conversing with the main agent
-- **Enforces OS-native process isolation** per agent session — no Docker required
+- **Enforces OS-native process isolation** per agent session (no Docker required)
 - **Provides full audit logging** of every agent action, tool call, and file access
-- **Ships as a single installable app** — no setup beyond choosing your folders
+- **Ships as a single installable app** terminal experience not required (but available)
+
+---
+
+## How To Use
+
+Download the installer for your OS and run it. It will guide you through the setup process.
 
 ---
 

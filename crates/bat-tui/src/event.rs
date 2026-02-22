@@ -80,6 +80,7 @@ async fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     match app.screen {
         Screen::Chat => handle_chat_key(app, key).await,
         Screen::Settings => handle_settings_key(app, key).await,
+        Screen::Logs => handle_logs_key(app, key).await,
     }
 }
 
@@ -125,8 +126,13 @@ async fn handle_settings_key(app: &mut App, key: KeyEvent) -> Result<()> {
             app.settings_cursor = 0;
         }
         KeyCode::Tab => {
-            app.settings_tab = app.settings_tab.next();
-            app.settings_cursor = 0;
+            // If on last settings tab, go to Logs screen
+            if app.settings_tab == SettingsTab::About {
+                app.screen = Screen::Logs;
+            } else {
+                app.settings_tab = app.settings_tab.next();
+                app.settings_cursor = 0;
+            }
         }
         KeyCode::Esc => {
             app.screen = Screen::Chat;
@@ -220,6 +226,32 @@ async fn handle_settings_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 app.edit_buffer.clear();
                 app.input_mode = InputMode::Editing;
             }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_logs_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    match key.code {
+        KeyCode::Tab => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Esc => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.logs_scroll = app.logs_scroll.saturating_add(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.logs_scroll = app.logs_scroll.saturating_sub(1);
+        }
+        KeyCode::Char('G') => {
+            app.logs_scroll = 0; // Jump to bottom (newest)
+        }
+        KeyCode::Char('g') => {
+            // Jump to top (oldest)
+            app.logs_scroll = app.audit_entries.len().saturating_sub(1);
         }
         _ => {}
     }

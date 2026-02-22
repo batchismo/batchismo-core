@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use uuid::Uuid;
 use chrono::Utc;
 
+use bat_types::audit::{AuditCategory, AuditEntry, AuditFilter, AuditLevel, AuditStats, AuditLevelCounts, AuditCategoryCounts};
 use bat_types::message::Message;
 use bat_types::session::{SessionMeta, SessionStatus};
 use bat_types::policy::{PathPolicy, AccessLevel};
@@ -76,7 +77,21 @@ impl Database {
                 recursive   INTEGER NOT NULL DEFAULT 1,
                 description TEXT,
                 created_at  TEXT NOT NULL
-            );"
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          TEXT NOT NULL,
+                session_id  TEXT,
+                level       TEXT NOT NULL,
+                category    TEXT NOT NULL,
+                event       TEXT NOT NULL,
+                summary     TEXT NOT NULL,
+                detail_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
+            CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category);
+            CREATE INDEX IF NOT EXISTS idx_audit_level ON audit_log(level);"
         )?;
         Ok(())
     }
@@ -302,6 +317,152 @@ impl Database {
         )?;
         Ok(())
     }
+
+    // ── Audit Log ────────────────────────────────────────────────
+
+    /// Insert an audit log entry. Returns the row id.
+    pub fn insert_audit_log(
+        &self,
+        ts: &str,
+        session_id: Option<&str>,
+        level: AuditLevel,
+        category: AuditCategory,
+        event: &str,
+        summary: &str,
+        detail_json: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO audit_log (ts, session_id, level, category, event, summary, detail_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                ts,
+                session_id,
+                level.to_string(),
+                category.to_string(),
+                event,
+                summary,
+                detail_json,
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Query audit log entries with optional filters.
+    pub fn query_audit_log(&self, filter: &AuditFilter) -> Result<Vec<AuditEntry>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut sql = String::from(
+            "SELECT id, ts, session_id, level, category, event, summary, detail_json FROM audit_log WHERE 1=1"
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut idx = 1;
+
+        if let Some(ref level) = filter.level {
+            sql.push_str(&format!(" AND level = ?{idx}"));
+            param_values.push(Box::new(level.to_string()));
+            idx += 1;
+        }
+        if let Some(ref category) = filter.category {
+            sql.push_str(&format!(" AND category = ?{idx}"));
+            param_values.push(Box::new(category.to_string()));
+            idx += 1;
+        }
+        if let Some(ref session_id) = filter.session_id {
+            sql.push_str(&format!(" AND session_id = ?{idx}"));
+            param_values.push(Box::new(session_id.clone()));
+            idx += 1;
+        }
+        if let Some(ref since) = filter.since {
+            sql.push_str(&format!(" AND ts >= ?{idx}"));
+            param_values.push(Box::new(since.clone()));
+            idx += 1;
+        }
+        if let Some(ref until) = filter.until {
+            sql.push_str(&format!(" AND ts <= ?{idx}"));
+            param_values.push(Box::new(until.clone()));
+            idx += 1;
+        }
+        if let Some(ref search) = filter.search {
+            sql.push_str(&format!(" AND summary LIKE ?{idx}"));
+            param_values.push(Box::new(format!("%{search}%")));
+            idx += 1;
+        }
+
+        sql.push_str(" ORDER BY id DESC");
+
+        if let Some(limit) = filter.limit {
+            sql.push_str(&format!(" LIMIT ?{idx}"));
+            param_values.push(Box::new(limit));
+            idx += 1;
+        } else {
+            sql.push_str(&format!(" LIMIT ?{idx}"));
+            param_values.push(Box::new(500i64));
+            idx += 1;
+        }
+        if let Some(offset) = filter.offset {
+            sql.push_str(&format!(" OFFSET ?{idx}"));
+            param_values.push(Box::new(offset));
+        }
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let entries = stmt
+            .query_map(params_ref.as_slice(), |row| {
+                let level_str: String = row.get(3)?;
+                let cat_str: String = row.get(4)?;
+                Ok(AuditEntry {
+                    id: row.get(0)?,
+                    ts: row.get(1)?,
+                    session_id: row.get(2)?,
+                    level: level_str.parse().unwrap_or(AuditLevel::Info),
+                    category: cat_str.parse().unwrap_or(AuditCategory::Gateway),
+                    event: row.get(5)?,
+                    summary: row.get(6)?,
+                    detail_json: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(entries)
+    }
+
+    /// Get summary statistics for the audit log.
+    pub fn get_audit_stats(&self) -> Result<AuditStats> {
+        let conn = self.conn.lock().unwrap();
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM audit_log", [], |r| r.get(0))?;
+
+        let count_level = |level: &str| -> Result<i64> {
+            Ok(conn.query_row(
+                "SELECT COUNT(*) FROM audit_log WHERE level = ?1",
+                params![level],
+                |r| r.get(0),
+            )?)
+        };
+        let count_cat = |cat: &str| -> Result<i64> {
+            Ok(conn.query_row(
+                "SELECT COUNT(*) FROM audit_log WHERE category = ?1",
+                params![cat],
+                |r| r.get(0),
+            )?)
+        };
+
+        Ok(AuditStats {
+            total,
+            by_level: AuditLevelCounts {
+                debug: count_level("debug")?,
+                info: count_level("info")?,
+                warn: count_level("warn")?,
+                error: count_level("error")?,
+            },
+            by_category: AuditCategoryCounts {
+                agent: count_cat("agent")?,
+                tool: count_cat("tool")?,
+                gateway: count_cat("gateway")?,
+                ipc: count_cat("ipc")?,
+                config: count_cat("config")?,
+            },
+        })
+    }
 }
 
 struct MessageRow {
@@ -403,5 +564,53 @@ mod tests {
         assert_eq!(policies.len(), 1);
         assert_eq!(policies[0].path.to_string_lossy(), "/tmp/test");
         assert_eq!(policies[0].access, AccessLevel::ReadWrite);
+    }
+
+    #[test]
+    fn test_audit_log_insert_and_query() {
+        let db = Database::open_in_memory().unwrap();
+
+        // Insert entries
+        let id1 = db.insert_audit_log(
+            "2026-02-22T01:00:00Z", Some("session-1"), AuditLevel::Info, AuditCategory::Gateway,
+            "gateway_start", "Gateway started", None,
+        ).unwrap();
+        assert!(id1 > 0);
+
+        db.insert_audit_log(
+            "2026-02-22T01:00:01Z", Some("session-1"), AuditLevel::Info, AuditCategory::Agent,
+            "agent_spawn", "Agent spawned (pid: 1234)", None,
+        ).unwrap();
+
+        db.insert_audit_log(
+            "2026-02-22T01:00:02Z", Some("session-1"), AuditLevel::Error, AuditCategory::Tool,
+            "tool_error", "fs.read failed", Some(r#"{"path":"/etc/shadow"}"#),
+        ).unwrap();
+
+        // Query all
+        let all = db.query_audit_log(&AuditFilter::default()).unwrap();
+        assert_eq!(all.len(), 3);
+
+        // Query by level
+        let errors = db.query_audit_log(&AuditFilter { level: Some(AuditLevel::Error), ..Default::default() }).unwrap();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].event, "tool_error");
+
+        // Query by category
+        let agent = db.query_audit_log(&AuditFilter { category: Some(AuditCategory::Agent), ..Default::default() }).unwrap();
+        assert_eq!(agent.len(), 1);
+
+        // Search
+        let search = db.query_audit_log(&AuditFilter { search: Some("spawned".to_string()), ..Default::default() }).unwrap();
+        assert_eq!(search.len(), 1);
+
+        // Stats
+        let stats = db.get_audit_stats().unwrap();
+        assert_eq!(stats.total, 3);
+        assert_eq!(stats.by_level.info, 2);
+        assert_eq!(stats.by_level.error, 1);
+        assert_eq!(stats.by_category.gateway, 1);
+        assert_eq!(stats.by_category.agent, 1);
+        assert_eq!(stats.by_category.tool, 1);
     }
 }

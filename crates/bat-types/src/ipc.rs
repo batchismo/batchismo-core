@@ -41,4 +41,11 @@ pub enum AgentToGateway {
     Error {
         message: String,
     },
+    AuditLog {
+        level: String,
+        category: String,
+        event: String,
+        summary: String,
+        detail_json: Option<String>,
+    },
 }

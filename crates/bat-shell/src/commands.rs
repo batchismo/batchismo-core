@@ -3,7 +3,13 @@
 use tauri::State;
 
 use bat_gateway::ToolInfo;
-use bat_types::{config::BatConfig, message::Message, policy::PathPolicy, session::SessionMeta};
+use bat_types::{
+    audit::{AuditEntry, AuditFilter, AuditStats},
+    config::BatConfig,
+    message::Message,
+    policy::PathPolicy,
+    session::SessionMeta,
+};
 
 use crate::AppState;
 
@@ -128,5 +134,23 @@ pub fn get_system_prompt(state: State<'_, AppState>) -> Result<String, String> {
     state
         .gateway
         .get_system_prompt()
+        .map_err(|e| e.to_string())
+}
+
+/// Query audit log entries with optional filters.
+#[tauri::command]
+pub fn get_audit_logs(filter: AuditFilter, state: State<'_, AppState>) -> Result<Vec<AuditEntry>, String> {
+    state
+        .gateway
+        .query_audit_log(&filter)
+        .map_err(|e| e.to_string())
+}
+
+/// Get audit log summary statistics.
+#[tauri::command]
+pub fn get_audit_stats(state: State<'_, AppState>) -> Result<AuditStats, String> {
+    state
+        .gateway
+        .get_audit_stats()
         .map_err(|e| e.to_string())
 }
