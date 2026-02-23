@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary } from '../types'
 
 export const sendMessage = (content: string): Promise<void> =>
   invoke('send_message', { content })
@@ -39,6 +39,22 @@ export const getAuditLogs = (filter: AuditFilter): Promise<AuditEntry[]> =>
 
 export const getAuditStats = (): Promise<AuditStats> =>
   invoke('get_audit_stats')
+
+// Memory
+export const getMemoryFiles = (): Promise<MemoryFileInfo[]> =>
+  invoke('get_memory_files')
+
+export const getMemoryFile = (name: string): Promise<string> =>
+  invoke('get_memory_file', { name })
+
+export const updateMemoryFile = (name: string, content: string): Promise<void> =>
+  invoke('update_memory_file', { name, content })
+
+export const getObservations = (filter: ObservationFilter): Promise<Observation[]> =>
+  invoke('get_observations', { filter })
+
+export const getObservationSummary = (): Promise<ObservationSummary> =>
+  invoke('get_observation_summary')
 
 // Onboarding
 export const isOnboardingComplete = (): Promise<boolean> =>

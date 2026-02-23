@@ -108,7 +108,41 @@ export interface AuditStats {
   byCategory: { agent: number; tool: number; gateway: number; ipc: number; config: number }
 }
 
-export type AppView = 'chat' | 'settings' | 'logs'
+// Memory types
+export type ObservationKind = 'tool_use' | 'path_access' | 'user_correction' | 'task_pattern' | 'preference'
+
+export interface Observation {
+  id: number
+  ts: string
+  sessionId: string | null
+  kind: ObservationKind
+  key: string
+  value: string | null
+  count: number
+}
+
+export interface ObservationFilter {
+  kind?: ObservationKind | null
+  since?: string | null
+  key?: string | null
+  limit?: number | null
+}
+
+export interface ObservationSummary {
+  totalObservations: number
+  totalSessions: number
+  topTools: [string, number][]
+  topPaths: [string, number][]
+  lastConsolidation: string | null
+}
+
+export interface MemoryFileInfo {
+  name: string
+  sizeBytes: number
+  modifiedAt: string | null
+}
+
+export type AppView = 'chat' | 'settings' | 'logs' | 'memory'
 
 // Onboarding
 export interface FolderAccess {

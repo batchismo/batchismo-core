@@ -6,6 +6,7 @@ use uuid::Uuid;
 use chrono::Utc;
 
 use bat_types::audit::{AuditCategory, AuditEntry, AuditFilter, AuditLevel, AuditStats, AuditLevelCounts, AuditCategoryCounts};
+use bat_types::memory::{Observation, ObservationFilter, ObservationKind, ObservationSummary};
 use bat_types::message::Message;
 use bat_types::session::{SessionMeta, SessionStatus};
 use bat_types::policy::{PathPolicy, AccessLevel};
@@ -91,7 +92,21 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
             CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category);
-            CREATE INDEX IF NOT EXISTS idx_audit_level ON audit_log(level);"
+            CREATE INDEX IF NOT EXISTS idx_audit_level ON audit_log(level);
+
+            CREATE TABLE IF NOT EXISTS observations (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          TEXT NOT NULL,
+                session_id  TEXT,
+                kind        TEXT NOT NULL,
+                key         TEXT NOT NULL,
+                value       TEXT,
+                count       INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_obs_kind ON observations(kind);
+            CREATE INDEX IF NOT EXISTS idx_obs_key ON observations(key);
+            CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);"
         )?;
         Ok(())
     }
@@ -463,6 +478,127 @@ impl Database {
             },
         })
     }
+
+    // ── Observations ─────────────────────────────────────────────
+
+    /// Record a behavioral observation. If the same kind+key was recorded
+    /// in the last hour, increment the count instead of inserting a new row.
+    pub fn record_observation(
+        &self,
+        kind: ObservationKind,
+        key: &str,
+        value: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let ts = Utc::now().to_rfc3339();
+        let one_hour_ago = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+
+        // Try to increment an existing recent observation
+        let updated = conn.execute(
+            "UPDATE observations SET count = count + 1, ts = ?1
+             WHERE kind = ?2 AND key = ?3 AND ts > ?4",
+            params![ts, kind.to_string(), key, one_hour_ago],
+        )?;
+
+        if updated == 0 {
+            conn.execute(
+                "INSERT INTO observations (ts, session_id, kind, key, value, count, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+                params![ts, session_id, kind.to_string(), key, value, ts],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Query observations with optional filters.
+    pub fn get_observations(&self, filter: &ObservationFilter) -> Result<Vec<Observation>> {
+        let conn = self.conn.lock().unwrap();
+        let mut sql = String::from(
+            "SELECT id, ts, session_id, kind, key, value, count FROM observations WHERE 1=1"
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut idx = 1;
+
+        if let Some(ref kind) = filter.kind {
+            sql.push_str(&format!(" AND kind = ?{idx}"));
+            param_values.push(Box::new(kind.to_string()));
+            idx += 1;
+        }
+        if let Some(ref since) = filter.since {
+            sql.push_str(&format!(" AND ts >= ?{idx}"));
+            param_values.push(Box::new(since.clone()));
+            idx += 1;
+        }
+        if let Some(ref key) = filter.key {
+            sql.push_str(&format!(" AND key LIKE ?{idx}"));
+            param_values.push(Box::new(format!("%{key}%")));
+            idx += 1;
+        }
+
+        sql.push_str(" ORDER BY ts DESC");
+
+        let limit = filter.limit.unwrap_or(200);
+        sql.push_str(&format!(" LIMIT ?{idx}"));
+        param_values.push(Box::new(limit));
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params_ref.as_slice(), |row| {
+                let kind_str: String = row.get(3)?;
+                Ok(Observation {
+                    id: row.get(0)?,
+                    ts: row.get(1)?,
+                    session_id: row.get(2)?,
+                    kind: kind_str.parse().unwrap_or(ObservationKind::ToolUse),
+                    key: row.get(4)?,
+                    value: row.get(5)?,
+                    count: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Get aggregated observation summary.
+    pub fn get_observation_summary(&self) -> Result<ObservationSummary> {
+        let conn = self.conn.lock().unwrap();
+
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM observations", [], |r| r.get(0))?;
+
+        // Count distinct sessions
+        let total_sessions: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT session_id) FROM observations WHERE session_id IS NOT NULL",
+            [], |r| r.get(0),
+        )?;
+
+        // Top tools (by total count)
+        let mut stmt = conn.prepare(
+            "SELECT key, SUM(count) as total FROM observations WHERE kind = 'tool_use'
+             GROUP BY key ORDER BY total DESC LIMIT 10"
+        )?;
+        let top_tools: Vec<(String, i64)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Top paths
+        let mut stmt = conn.prepare(
+            "SELECT key, SUM(count) as total FROM observations WHERE kind = 'path_access'
+             GROUP BY key ORDER BY total DESC LIMIT 10"
+        )?;
+        let top_paths: Vec<(String, i64)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ObservationSummary {
+            total_observations: total,
+            total_sessions,
+            top_tools,
+            top_paths,
+            last_consolidation: None, // TODO: track this
+        })
+    }
 }
 
 struct MessageRow {
@@ -612,5 +748,37 @@ mod tests {
         assert_eq!(stats.by_category.gateway, 1);
         assert_eq!(stats.by_category.agent, 1);
         assert_eq!(stats.by_category.tool, 1);
+    }
+
+    #[test]
+    fn test_observations() {
+        let db = Database::open_in_memory().unwrap();
+
+        // Record observations
+        db.record_observation(ObservationKind::ToolUse, "fs_read", None, Some("s1")).unwrap();
+        db.record_observation(ObservationKind::ToolUse, "fs_read", None, Some("s1")).unwrap(); // should increment
+        db.record_observation(ObservationKind::ToolUse, "fs_write", None, Some("s1")).unwrap();
+        db.record_observation(ObservationKind::PathAccess, "/tmp/test.txt", Some("fs_read"), Some("s1")).unwrap();
+
+        // Query all
+        let all = db.get_observations(&ObservationFilter::default()).unwrap();
+        assert_eq!(all.len(), 3); // fs_read was incremented, not duplicated
+
+        // The fs_read observation should have count 2
+        let fs_read = all.iter().find(|o| o.key == "fs_read").unwrap();
+        assert_eq!(fs_read.count, 2);
+
+        // Query by kind
+        let paths = db.get_observations(&ObservationFilter {
+            kind: Some(ObservationKind::PathAccess),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        // Summary
+        let summary = db.get_observation_summary().unwrap();
+        assert_eq!(summary.total_observations, 3);
+        assert_eq!(summary.total_sessions, 1);
+        assert_eq!(summary.top_tools.len(), 2);
     }
 }

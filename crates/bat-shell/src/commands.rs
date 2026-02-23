@@ -6,6 +6,7 @@ use bat_gateway::ToolInfo;
 use bat_types::{
     audit::{AuditEntry, AuditFilter, AuditStats},
     config::BatConfig,
+    memory::{MemoryFileInfo, Observation, ObservationFilter, ObservationSummary},
     message::Message,
     policy::PathPolicy,
     session::SessionMeta,
@@ -167,6 +168,38 @@ pub async fn complete_onboarding(
         .complete_onboarding(name, api_key, folders)
         .await
         .map_err(|e| e.to_string())
+}
+
+// ─── Memory / Observations ─────────────────────────────────────────────
+
+/// List workspace memory files.
+#[tauri::command]
+pub fn get_memory_files(state: State<'_, AppState>) -> Result<Vec<MemoryFileInfo>, String> {
+    state.gateway.list_memory_files().map_err(|e| e.to_string())
+}
+
+/// Read a specific memory file.
+#[tauri::command]
+pub fn get_memory_file(name: String, state: State<'_, AppState>) -> Result<String, String> {
+    state.gateway.read_memory_file(&name).map_err(|e| e.to_string())
+}
+
+/// Write/update a memory file.
+#[tauri::command]
+pub fn update_memory_file(name: String, content: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.gateway.write_memory_file(&name, &content).map_err(|e| e.to_string())
+}
+
+/// Query observations.
+#[tauri::command]
+pub fn get_observations(filter: ObservationFilter, state: State<'_, AppState>) -> Result<Vec<Observation>, String> {
+    state.gateway.get_observations(&filter).map_err(|e| e.to_string())
+}
+
+/// Get observation summary.
+#[tauri::command]
+pub fn get_observation_summary(state: State<'_, AppState>) -> Result<ObservationSummary, String> {
+    state.gateway.get_observation_summary().map_err(|e| e.to_string())
 }
 
 // ─── Audit ─────────────────────────────────────────────────────────────

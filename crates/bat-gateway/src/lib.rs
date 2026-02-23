@@ -2,6 +2,7 @@ pub mod config;
 pub mod db;
 pub mod events;
 pub mod ipc;
+pub mod memory;
 pub mod session;
 pub mod system_prompt;
 
@@ -19,6 +20,7 @@ use bat_types::{
     audit::{AuditCategory, AuditEntry, AuditFilter, AuditLevel, AuditStats},
     config::BatConfig,
     ipc::{AgentToGateway, GatewayToAgent},
+    memory::{MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, ObservationKind},
     message::Message,
     policy::{AccessLevel, PathPolicy},
     session::SessionMeta,
@@ -392,6 +394,55 @@ impl Gateway {
     pub fn get_audit_stats(&self) -> Result<AuditStats> {
         self.db.get_audit_stats()
     }
+
+    // ─── Memory / Observations ────────────────────────────────────────────
+
+    /// Record a behavioral observation.
+    pub fn record_observation(
+        &self,
+        kind: ObservationKind,
+        key: &str,
+        value: Option<&str>,
+        session_id: Option<&str>,
+    ) {
+        if let Err(e) = self.db.record_observation(kind, key, value, session_id) {
+            error!("Failed to record observation: {}", e);
+        }
+    }
+
+    /// Query observations.
+    pub fn get_observations(&self, filter: &ObservationFilter) -> Result<Vec<Observation>> {
+        self.db.get_observations(filter)
+    }
+
+    /// Get observation summary stats.
+    pub fn get_observation_summary(&self) -> Result<ObservationSummary> {
+        self.db.get_observation_summary()
+    }
+
+    /// List workspace memory files.
+    pub fn list_memory_files(&self) -> Result<Vec<MemoryFileInfo>> {
+        memory::list_memory_files()
+    }
+
+    /// Read a memory file.
+    pub fn read_memory_file(&self, name: &str) -> Result<String> {
+        memory::read_memory_file(name)
+    }
+
+    /// Write a memory file.
+    pub fn write_memory_file(&self, name: &str, content: &str) -> Result<()> {
+        memory::write_memory_file(name, content)?;
+        self.log_event(
+            AuditLevel::Info,
+            AuditCategory::Config,
+            "memory_update",
+            &format!("Memory file updated: {name}"),
+            None,
+            None,
+        );
+        Ok(())
+    }
 }
 
 // ─── Agent turn runner ────────────────────────────────────────────────────────
@@ -485,12 +536,24 @@ async fn run_agent_turn(
                     AgentToGateway::TurnComplete { .. } | AgentToGateway::Error { .. }
                 );
 
-                // Audit tool call events
+                // Audit tool call events + record observations
                 match &event {
                     AgentToGateway::ToolCallStart { tool_call } => {
                         audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Tool, "tool_call_start",
                             &format!("Tool call: {}", tool_call.name), Some(&sid),
                             Some(&serde_json::to_string(&tool_call.input).unwrap_or_default()));
+
+                        // Record tool use observation
+                        let _ = db.record_observation(
+                            ObservationKind::ToolUse, &tool_call.name, None, Some(&sid),
+                        );
+
+                        // Record path access for fs tools
+                        if let Some(path) = tool_call.input.get("path").and_then(|v| v.as_str()) {
+                            let _ = db.record_observation(
+                                ObservationKind::PathAccess, path, Some(&tool_call.name), Some(&sid),
+                            );
+                        }
                     }
                     AgentToGateway::ToolCallResult { result } => {
                         let status = if result.is_error { "error" } else { "success" };
