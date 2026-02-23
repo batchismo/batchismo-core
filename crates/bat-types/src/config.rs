@@ -52,7 +52,7 @@ impl Default for BatConfig {
         Self {
             agent: AgentConfig {
                 name: "Aria".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: "claude-sonnet-4-6".to_string(),
                 thinking_level: "medium".to_string(),
                 api_key: None,
                 disabled_tools: vec![],

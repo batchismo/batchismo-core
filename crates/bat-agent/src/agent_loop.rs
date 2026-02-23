@@ -54,7 +54,7 @@ pub async fn run_turn_streaming(
 
         let request = ChatRequest {
             model: model.to_string(),
-            max_tokens: 4096,
+            max_tokens: 8192,
             system: system_prompt.to_string(),
             messages: messages.clone(),
             tools: tool_defs.clone(),

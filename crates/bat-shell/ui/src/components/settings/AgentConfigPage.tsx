@@ -3,9 +3,9 @@ import type { BatConfig } from '../../types'
 import { getConfig, updateConfig, getSystemPrompt } from '../../lib/tauri'
 
 const COMMON_MODELS = [
-  'anthropic/claude-opus-4-6',
-  'anthropic/claude-sonnet-4-6',
-  'anthropic/claude-haiku-4-5-20251001',
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+  'claude-haiku-4-5-20251001',
 ]
 
 export function AgentConfigPage() {
