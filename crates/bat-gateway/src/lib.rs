@@ -149,6 +149,7 @@ impl Gateway {
 
         let db = Arc::clone(&self.db);
         let proc_mgr = self.process_manager.clone();
+        let gw_config = Arc::clone(&self.config);
 
         // Spawn the agent turn in a background task
         tokio::spawn(async move {
@@ -169,6 +170,7 @@ impl Gateway {
                 session_manager,
                 db,
                 proc_mgr,
+                gw_config,
             )
             .await
             {
@@ -569,9 +571,103 @@ fn audit(
     });
 }
 
+/// Handle subagent-related actions synchronously (the actual subagent runs in a spawned task).
+fn handle_subagent_action(
+    action: bat_types::ipc::ProcessAction,
+    session_id: Uuid,
+    db: &Arc<Database>,
+    event_bus: &EventBus,
+    proc_mgr: &process_manager::ProcessManager,
+    config: &Arc<RwLock<BatConfig>>,
+) -> bat_types::ipc::ProcessResult {
+    use bat_types::ipc::{ProcessAction, ProcessResult};
+    use bat_types::session::SubagentStatus;
+
+    match action {
+        ProcessAction::SpawnSubagent { task, label } => {
+            let label = label.unwrap_or_else(|| task.chars().take(40).collect::<String>());
+            let (model, api_key_cfg, disabled_tools_base) = {
+                let cfg = config.read().unwrap();
+                (
+                    cfg.agent.model.clone(),
+                    cfg.agent.api_key.clone(),
+                    cfg.agent.disabled_tools.clone(),
+                )
+            };
+            match db.create_subagent_session(session_id, &model, &label, &task) {
+                Ok(sub_session) => {
+                    let sub_key = sub_session.key.clone();
+                    let sub_key2 = sub_key.clone();
+                    let sub_id = sub_session.id;
+                    let sub_prompt = format!(
+                        "You are a subagent running a specific task. Complete the task and provide a clear summary.\n\n\
+                         ## Your Task\n{task}\n\n\
+                         ## Guidelines\n\
+                         - Focus exclusively on the assigned task.\n\
+                         - Use your tools to accomplish the task.\n\
+                         - When done, provide a concise summary.\n\
+                         - You cannot spawn subagents or modify memory files.\n"
+                    );
+                    let path_policies = db.get_path_policies().unwrap_or_default();
+                    let api_key = std::env::var("ANTHROPIC_API_KEY").ok().or(api_key_cfg).unwrap_or_default();
+                    let mut disabled_tools = disabled_tools_base;
+                    disabled_tools.push("session_spawn".to_string());
+
+                    let eb = event_bus.clone();
+                    let db2 = Arc::clone(db);
+                    let sm = Arc::new(session::SessionManager::new(Arc::clone(db), model.clone()));
+                    let pm = proc_mgr.clone();
+                    let cfg2 = Arc::clone(config);
+
+                    tokio::spawn(async move {
+                        info!("Subagent starting: key={sub_key}, task={}", &task[..task.len().min(60)]);
+                        let result = run_agent_turn(
+                            sub_id, model, sub_prompt, vec![], task.clone(),
+                            path_policies, disabled_tools, api_key,
+                            eb.clone(), sm, db2.clone(), pm, cfg2,
+                        ).await;
+                        match result {
+                            Ok(()) => {
+                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Completed, Some("Task completed successfully."));
+                                eb.send(AgentToGateway::AuditLog {
+                                    level: "info".into(), category: "agent".into(),
+                                    event: "subagent_complete".into(),
+                                    summary: format!("[Subagent: {label} — completed]"),
+                                    detail_json: None,
+                                });
+                                info!("Subagent completed: key={sub_key}");
+                            }
+                            Err(e) => {
+                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Failed, Some(&e.to_string()));
+                                eb.send(AgentToGateway::AuditLog {
+                                    level: "error".into(), category: "agent".into(),
+                                    event: "subagent_failed".into(),
+                                    summary: format!("[Subagent: {label} — failed] {e}"),
+                                    detail_json: None,
+                                });
+                                error!("Subagent failed: key={sub_key}, err={e}");
+                            }
+                        }
+                    });
+                    ProcessResult::SubagentSpawned { session_key: sub_key2, session_id: sub_id.to_string() }
+                }
+                Err(e) => ProcessResult::Error { message: e.to_string() },
+            }
+        }
+        ProcessAction::ListSubagents => {
+            match db.get_subagents(session_id) {
+                Ok(subagents) => ProcessResult::SubagentList { subagents },
+                Err(e) => ProcessResult::Error { message: e.to_string() },
+            }
+        }
+        ProcessAction::CancelSubagent { .. } => ProcessResult::SubagentCancelled,
+        _ => ProcessResult::Error { message: "Not a subagent action".into() },
+    }
+}
+
 /// Handle a process management request from the agent.
 async fn handle_process_request(
-    proc_mgr: &process_manager::ProcessManager,
+    proc_mgr: process_manager::ProcessManager,
     action: bat_types::ipc::ProcessAction,
 ) -> bat_types::ipc::ProcessResult {
     use bat_types::ipc::{ProcessAction, ProcessResult};
@@ -625,6 +721,11 @@ async fn handle_process_request(
                 processes: proc_mgr.list().await,
             }
         }
+        // Subagent actions are handled in the IPC loop directly (not here)
+        // because they need access to gateway state that would make this future !Send.
+        ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } => {
+            ProcessResult::Error { message: "Subagent actions must be handled by the gateway directly".to_string() }
+        }
     }
 }
 
@@ -641,6 +742,7 @@ async fn run_agent_turn(
     session_manager: Arc<SessionManager>,
     db: Arc<Database>,
     proc_mgr: process_manager::ProcessManager,
+    gw_config: Arc<RwLock<BatConfig>>,
 ) -> Result<()> {
     let sid = session_id.to_string();
 
@@ -733,12 +835,18 @@ async fn run_agent_turn(
                             message, Some(&sid), None);
                     }
                     AgentToGateway::ProcessRequest { ref request_id, ref action } => {
-                        let result = handle_process_request(&proc_mgr, action.clone()).await;
+                        use bat_types::ipc::ProcessAction;
+
+                        // Handle subagent actions synchronously, process actions async
+                        let result = if matches!(action, ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. }) {
+                            handle_subagent_action(action.clone(), session_id, &db, &event_bus, &proc_mgr, &gw_config)
+                        } else {
+                            handle_process_request(proc_mgr.clone(), action.clone()).await
+                        };
                         let _ = pipe.send(&GatewayToAgent::ProcessResponse {
                             request_id: request_id.clone(),
                             result,
                         }).await;
-                        // Don't forward ProcessRequest to event bus
                         continue;
                     }
                     _ => {}

@@ -8,7 +8,7 @@ use chrono::Utc;
 use bat_types::audit::{AuditCategory, AuditEntry, AuditFilter, AuditLevel, AuditStats, AuditLevelCounts, AuditCategoryCounts};
 use bat_types::memory::{Observation, ObservationFilter, ObservationKind, ObservationSummary};
 use bat_types::message::Message;
-use bat_types::session::{SessionMeta, SessionStatus};
+use bat_types::session::{SessionKind, SessionMeta, SessionStatus, SubagentInfo, SubagentStatus};
 use bat_types::policy::{PathPolicy, AccessLevel};
 
 pub struct Database {
@@ -108,6 +108,15 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_obs_key ON observations(key);
             CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);"
         )?;
+
+        // Migration: add subagent columns to sessions (safe if they already exist)
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN parent_id TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN label TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN task TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN subagent_status TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN summary TEXT", []);
+
         Ok(())
     }
 
@@ -132,6 +141,7 @@ impl Database {
             token_output: 0,
             created_at: now,
             updated_at: now,
+            kind: SessionKind::Main,
         })
     }
 
@@ -615,6 +625,106 @@ struct MessageRow {
     created_at: String,
 }
 
+impl Database {
+    /// Create a subagent session.
+    pub fn create_subagent_session(
+        &self,
+        parent_id: Uuid,
+        model: &str,
+        label: &str,
+        task: &str,
+    ) -> Result<SessionMeta> {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4();
+        let key = format!("subagent:{}", &id.to_string()[..8]);
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        conn.execute(
+            "INSERT INTO sessions (id, key, model, status, token_input, token_output, created_at, updated_at, kind, parent_id, label, task, subagent_status)
+             VALUES (?1, ?2, ?3, 'active', 0, 0, ?4, ?4, 'subagent', ?5, ?6, ?7, 'running')",
+            params![id.to_string(), key, model, now_str, parent_id.to_string(), label, task],
+        )?;
+        Ok(SessionMeta {
+            id,
+            key,
+            model: model.to_string(),
+            status: SessionStatus::Active,
+            token_input: 0,
+            token_output: 0,
+            created_at: now,
+            updated_at: now,
+            kind: SessionKind::Subagent {
+                parent_id,
+                label: label.to_string(),
+                task: task.to_string(),
+            },
+        })
+    }
+
+    /// Get all subagent sessions for a parent session.
+    pub fn get_subagents(&self, parent_id: Uuid) -> Result<Vec<SubagentInfo>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, key, label, task, subagent_status, created_at, updated_at, summary, token_input, token_output
+             FROM sessions WHERE parent_id = ?1 ORDER BY created_at DESC"
+        )?;
+        let rows = stmt.query_map(params![parent_id.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, i64>(9)?,
+            ))
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            let (id_str, key, label, task, status_str, created, _updated, summary, tok_in, tok_out) = row?;
+            let status = match status_str.as_deref() {
+                Some("completed") => SubagentStatus::Completed,
+                Some("failed") => SubagentStatus::Failed,
+                Some("cancelled") => SubagentStatus::Cancelled,
+                _ => SubagentStatus::Running,
+            };
+            result.push(SubagentInfo {
+                session_id: id_str.parse().unwrap_or_default(),
+                session_key: key,
+                label: label.unwrap_or_default(),
+                task: task.unwrap_or_default(),
+                status,
+                started_at: created,
+                completed_at: None, // Could track separately
+                summary,
+                token_input: tok_in,
+                token_output: tok_out,
+            });
+        }
+        Ok(result)
+    }
+
+    /// Update subagent status and optionally set summary.
+    pub fn update_subagent_status(
+        &self,
+        session_id: Uuid,
+        status: SubagentStatus,
+        summary: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sessions SET subagent_status = ?1, summary = ?2, updated_at = ?3 WHERE id = ?4",
+            params![status.to_string(), summary, now, session_id.to_string()],
+        )?;
+        Ok(())
+    }
+}
+
 fn row_to_session(row: &rusqlite::Row<'_>) -> Result<SessionMeta> {
     let id_str: String = row.get(0)?;
     let status_str: String = row.get(3)?;
@@ -629,6 +739,7 @@ fn row_to_session(row: &rusqlite::Row<'_>) -> Result<SessionMeta> {
         token_output: row.get(5)?,
         created_at: chrono::DateTime::parse_from_rfc3339(&created_str)?.with_timezone(&chrono::Utc),
         updated_at: chrono::DateTime::parse_from_rfc3339(&updated_str)?.with_timezone(&chrono::Utc),
+        kind: SessionKind::Main, // Default; subagent sessions are identified by DB columns
     })
 }
 

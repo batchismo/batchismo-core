@@ -10,6 +10,8 @@ pub mod exec_kill;
 pub mod exec_list;
 pub mod app_open;
 pub mod system_info;
+pub mod session_spawn;
+pub mod session_status;
 
 use anyhow::Result;
 use bat_types::message::{ToolCall, ToolResult};
@@ -74,7 +76,13 @@ impl ToolRegistry {
                 reg.register(Box::new(exec_kill::ExecKill::new(bridge.clone())));
             }
             if !disabled.contains(&"exec_list".to_string()) {
-                reg.register(Box::new(exec_list::ExecList::new(bridge)));
+                reg.register(Box::new(exec_list::ExecList::new(bridge.clone())));
+            }
+            if !disabled.contains(&"session_spawn".to_string()) {
+                reg.register(Box::new(session_spawn::SessionSpawn::new(bridge.clone())));
+            }
+            if !disabled.contains(&"session_status".to_string()) {
+                reg.register(Box::new(session_status::SessionStatus::new(bridge)));
             }
         }
         reg
