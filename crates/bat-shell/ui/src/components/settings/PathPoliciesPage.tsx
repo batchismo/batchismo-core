@@ -60,10 +60,11 @@ export function PathPoliciesPage() {
     }
   }
 
-  const handleDelete = async (path: string) => {
+  const handleDelete = async (id: number | undefined) => {
+    if (id === undefined) return
     setError(null)
     try {
-      await deletePathPolicy(path)
+      await deletePathPolicy(id)
       await load()
     } catch (e) {
       setError(String(e))
@@ -173,7 +174,7 @@ export function PathPoliciesPage() {
                 {p.recursive ? 'recursive' : 'top-level'}
               </span>
               <button
-                onClick={() => handleDelete(p.path)}
+                onClick={() => handleDelete(p.id)}
                 className="text-zinc-500 hover:text-red-400 transition-colors p-1 rounded"
                 title="Delete policy"
               >

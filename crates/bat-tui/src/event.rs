@@ -198,7 +198,9 @@ async fn handle_settings_key(app: &mut App, key: KeyEvent) -> Result<()> {
                     let path_str = policy.path.to_string_lossy().to_string();
                     let recursive = policy.recursive;
                     // Delete and re-add with new access
-                    let _ = app.gateway.delete_path_policy(&path_str).await;
+                    if let Some(id) = policy.id {
+                        let _ = app.gateway.delete_path_policy(id).await;
+                    }
                     let _ = app.gateway.add_path_policy(&path_str, new_access, recursive).await;
                     app.refresh_path_policies().await;
                 }
@@ -214,8 +216,9 @@ async fn handle_settings_key(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('d') => {
             if app.settings_tab == SettingsTab::PathPolicies {
                 if let Some(policy) = app.path_policies.get(app.path_cursor) {
-                    let path_str = policy.path.to_string_lossy().to_string();
-                    let _ = app.gateway.delete_path_policy(&path_str).await;
+                    if let Some(id) = policy.id {
+                        let _ = app.gateway.delete_path_policy(id).await;
+                    }
                     app.refresh_path_policies().await;
                     if app.path_cursor > 0 {
                         app.path_cursor -= 1;

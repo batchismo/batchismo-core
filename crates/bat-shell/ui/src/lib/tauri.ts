@@ -16,8 +16,8 @@ export const getPathPolicies = (): Promise<PathPolicy[]> =>
 export const addPathPolicy = (path: string, access: string, recursive: boolean): Promise<void> =>
   invoke('add_path_policy', { path, access, recursive })
 
-export const deletePathPolicy = (path: string): Promise<void> =>
-  invoke('delete_path_policy', { path })
+export const deletePathPolicy = (id: number): Promise<void> =>
+  invoke('delete_path_policy', { id })
 
 export const getTools = (): Promise<ToolInfo[]> =>
   invoke('get_tools')

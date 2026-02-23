@@ -11,6 +11,9 @@ pub enum AccessLevel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathPolicy {
+    /// Database row id (None for newly created, not yet persisted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
     pub path: PathBuf,
     pub access: AccessLevel,
     pub recursive: bool,
@@ -69,6 +72,7 @@ mod tests {
 
     fn policy(path: &str, access: AccessLevel, recursive: bool) -> PathPolicy {
         PathPolicy {
+            id: None,
             path: PathBuf::from(path),
             access,
             recursive,

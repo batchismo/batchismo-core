@@ -38,6 +38,7 @@ export interface SessionMeta {
 }
 
 export interface PathPolicy {
+  id?: number
   path: string
   access: 'read-only' | 'read-write' | 'write-only'
   recursive: boolean

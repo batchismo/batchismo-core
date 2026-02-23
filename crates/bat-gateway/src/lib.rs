@@ -202,6 +202,7 @@ impl Gateway {
             other => anyhow::bail!("Unknown access level: {other}"),
         };
         let policy = PathPolicy {
+            id: None,
             path: path.into(),
             access: access_level,
             recursive,
@@ -211,8 +212,8 @@ impl Gateway {
     }
 
     /// Delete a path policy by its path string.
-    pub async fn delete_path_policy(&self, path: &str) -> Result<()> {
-        self.db.delete_path_policy(path)
+    pub async fn delete_path_policy(&self, id: i64) -> Result<()> {
+        self.db.delete_path_policy(id)
     }
 
     /// Get a clone of the current config.

@@ -82,12 +82,12 @@ pub async fn add_path_policy(
 /// Delete a path policy by its path string.
 #[tauri::command]
 pub async fn delete_path_policy(
-    path: String,
+    id: i64,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
         .gateway
-        .delete_path_policy(&path)
+        .delete_path_policy(id)
         .await
         .map_err(|e| e.to_string())
 }

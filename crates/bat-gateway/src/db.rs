@@ -244,16 +244,17 @@ impl Database {
     pub fn get_path_policies(&self) -> Result<Vec<PathPolicy>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT path, access, recursive, description FROM path_policies"
+            "SELECT id, path, access, recursive, description FROM path_policies"
         )?;
         let rows = stmt.query_map([], |row| {
-            let access_str: String = row.get(1)?;
-            let recursive: bool = row.get(2)?;
-            Ok((row.get::<_, String>(0)?, access_str, recursive, row.get::<_, Option<String>>(3)?))
+            let id: i64 = row.get(0)?;
+            let access_str: String = row.get(2)?;
+            let recursive: bool = row.get(3)?;
+            Ok((id, row.get::<_, String>(1)?, access_str, recursive, row.get::<_, Option<String>>(4)?))
         })?;
         let mut policies = Vec::new();
         for row in rows {
-            let (path, access_str, recursive, desc) = row?;
+            let (id, path, access_str, recursive, desc) = row?;
             let access = match access_str.as_str() {
                 "read-only" => AccessLevel::ReadOnly,
                 "read-write" => AccessLevel::ReadWrite,
@@ -261,6 +262,7 @@ impl Database {
                 _ => continue,
             };
             policies.push(PathPolicy {
+                id: Some(id),
                 path: path.into(),
                 access,
                 recursive,
@@ -324,11 +326,11 @@ impl Database {
     }
 
     /// Delete a path policy by its path string.
-    pub fn delete_path_policy(&self, path: &str) -> Result<()> {
+    pub fn delete_path_policy(&self, id: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "DELETE FROM path_policies WHERE path = ?1",
-            rusqlite::params![path],
+            "DELETE FROM path_policies WHERE id = ?1",
+            rusqlite::params![id],
         )?;
         Ok(())
     }
@@ -689,6 +691,7 @@ mod tests {
     fn test_path_policies() {
         let db = Database::open_in_memory().unwrap();
         let policy = PathPolicy {
+            id: None,
             path: "/tmp/test".into(),
             access: AccessLevel::ReadWrite,
             recursive: true,
