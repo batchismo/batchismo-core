@@ -9,6 +9,7 @@ import { StatusBar } from './components/StatusBar'
 import { SettingsPanel } from './components/settings/SettingsPanel'
 import { LogsPanel } from './components/LogsPanel'
 import { MemoryPanel } from './components/MemoryPanel'
+import { ActivityPanel } from './components/ActivityPanel'
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 
 export default function App() {
@@ -56,7 +57,7 @@ export default function App() {
         {/* Header */}
         <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-2.5 flex-shrink-0">
           <span className="text-base font-semibold tracking-tight text-white">
-            {activeView === 'chat' ? 'Chat' : activeView === 'memory' ? 'Memory' : activeView === 'logs' ? 'Audit Log' : 'Settings'}
+            {activeView === 'chat' ? 'Chat' : activeView === 'memory' ? 'Memory' : activeView === 'activity' ? 'Activity' : activeView === 'logs' ? 'Audit Log' : 'Settings'}
           </span>
           {activeView === 'chat' && session && (
             <span className="text-xs text-zinc-500 font-mono ml-1">
@@ -79,6 +80,10 @@ export default function App() {
             />
             <StatusBar session={session} agentStatus={agentStatus} error={error} />
           </>
+        ) : activeView === 'activity' ? (
+          <div className="flex-1 overflow-hidden">
+            <ActivityPanel />
+          </div>
         ) : activeView === 'memory' ? (
           <div className="flex-1 overflow-hidden">
             <MemoryPanel />

@@ -85,6 +85,7 @@ async fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         Screen::Settings => handle_settings_key(app, key).await,
         Screen::Logs => handle_logs_key(app, key).await,
         Screen::Memory => handle_memory_key(app, key).await,
+        Screen::Activity => handle_activity_key(app, key).await,
     }
 }
 
@@ -447,7 +448,8 @@ async fn handle_memory_key(app: &mut App, key: KeyEvent) -> Result<()> {
 
     match key.code {
         KeyCode::Tab => {
-            app.screen = Screen::Chat;
+            app.screen = Screen::Activity;
+            app.refresh_subagents().await;
         }
         KeyCode::Esc => {
             app.screen = Screen::Chat;
@@ -548,6 +550,33 @@ async fn handle_editing_key(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         KeyCode::Backspace => {
             app.edit_buffer.pop();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_activity_key(app: &mut App, key: KeyEvent) -> anyhow::Result<()> {
+    match key.code {
+        KeyCode::Tab => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Esc => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Char('r') => {
+            app.refresh_subagents().await;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.activity_cursor = app.activity_cursor.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if !app.subagents.is_empty() {
+                app.activity_cursor = (app.activity_cursor + 1).min(app.subagents.len() - 1);
+            }
+        }
+        KeyCode::Enter => {
+            app.activity_expanded = !app.activity_expanded;
         }
         _ => {}
     }

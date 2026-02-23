@@ -110,6 +110,7 @@ fn main() {
             commands::complete_onboarding,
             commands::get_audit_logs,
             commands::get_audit_stats,
+            commands::get_subagents,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Batchismo");

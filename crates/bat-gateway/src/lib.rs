@@ -195,6 +195,12 @@ impl Gateway {
         self.session_manager.get_or_create_main()
     }
 
+    /// Get all subagent sessions for the main session.
+    pub async fn get_subagents(&self) -> Result<Vec<bat_types::session::SubagentInfo>> {
+        let session = self.session_manager.get_or_create_main()?;
+        self.db.get_subagents(session.id)
+    }
+
     /// Get all configured path policies.
     pub async fn get_path_policies(&self) -> Result<Vec<PathPolicy>> {
         self.db.get_path_policies()

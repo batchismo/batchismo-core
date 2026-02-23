@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo } from '../types'
 
 export const sendMessage = (content: string): Promise<void> =>
   invoke('send_message', { content })
@@ -58,6 +58,10 @@ export const getObservationSummary = (): Promise<ObservationSummary> =>
 
 export const triggerConsolidation = (): Promise<string> =>
   invoke('trigger_consolidation')
+
+// Subagents
+export const getSubagents = (): Promise<SubagentInfo[]> =>
+  invoke('get_subagents')
 
 // Onboarding
 export const isOnboardingComplete = (): Promise<boolean> =>

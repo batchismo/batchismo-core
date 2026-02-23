@@ -70,6 +70,15 @@ export const TOOL_DISPLAY: Record<string, { name: string; icon: string }> = {
   fs_list: { name: 'List Directory', icon: '📁' },
   web_fetch: { name: 'Fetch URL', icon: '🌐' },
   shell_run: { name: 'Run Command', icon: '⚡' },
+  exec_run: { name: 'Execute', icon: '▶️' },
+  exec_output: { name: 'Get Output', icon: '📋' },
+  exec_write: { name: 'Write Input', icon: '⌨️' },
+  exec_kill: { name: 'Kill Process', icon: '🛑' },
+  exec_list: { name: 'List Processes', icon: '📊' },
+  app_open: { name: 'Open App', icon: '🚀' },
+  system_info: { name: 'System Info', icon: '💻' },
+  session_spawn: { name: 'Spawn Subagent', icon: '🔀' },
+  session_status: { name: 'Subagent Status', icon: '📡' },
 }
 
 export interface AgentConfig {
@@ -154,7 +163,23 @@ export interface MemoryFileInfo {
   modifiedAt: string | null
 }
 
-export type AppView = 'chat' | 'settings' | 'logs' | 'memory'
+// Subagent types
+export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface SubagentInfo {
+  sessionId: string
+  sessionKey: string
+  label: string
+  task: string
+  status: SubagentStatus
+  startedAt: string
+  completedAt: string | null
+  summary: string | null
+  tokenInput: number
+  tokenOutput: number
+}
+
+export type AppView = 'chat' | 'settings' | 'logs' | 'memory' | 'activity'
 
 // Onboarding
 export interface FolderAccess {
