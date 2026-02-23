@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bat_gateway::Gateway;
 use bat_types::ipc::AgentToGateway;
+use bat_types::memory::{MemoryFileInfo, ObservationSummary};
 use bat_types::message::Message;
 use bat_types::policy::PathPolicy;
 
@@ -12,6 +13,7 @@ pub enum Screen {
     Chat,
     Settings,
     Logs,
+    Memory,
 }
 
 /// Settings sub-pages.
@@ -99,6 +101,16 @@ pub struct App {
     pub audit_entries: Vec<String>,
     pub logs_scroll: usize,
 
+    // Memory
+    pub memory_files: Vec<MemoryFileInfo>,
+    pub memory_cursor: usize,
+    pub memory_content: String,
+    pub memory_edit_content: String,
+    pub memory_editing: bool,
+    pub memory_summary: Option<ObservationSummary>,
+    pub memory_consolidating: bool,
+    pub memory_consolidation_result: String,
+
     // Onboarding
     pub onboarding_step: u8,          // 0=welcome, 1=apikey, 2=name, 3=access, 4=ready
     pub onboarding_api_key: String,
@@ -142,6 +154,15 @@ impl App {
 
             audit_entries: Vec::new(),
             logs_scroll: 0,
+
+            memory_files: Vec::new(),
+            memory_cursor: 0,
+            memory_content: String::new(),
+            memory_edit_content: String::new(),
+            memory_editing: false,
+            memory_summary: None,
+            memory_consolidating: false,
+            memory_consolidation_result: String::new(),
 
             onboarding_step: 0,
             onboarding_api_key: String::new(),
@@ -209,6 +230,9 @@ impl App {
                     summary,
                 ));
             }
+            AgentToGateway::ProcessRequest { .. } => {
+                // Process requests are handled by the gateway, not the TUI
+            }
         }
     }
 
@@ -229,6 +253,32 @@ impl App {
         // Send to gateway (spawns agent in background)
         self.gateway.send_user_message(&content).await?;
         Ok(())
+    }
+
+    /// Refresh memory files list and summary from the gateway.
+    pub async fn refresh_memory(&mut self) {
+        if let Ok(files) = self.gateway.list_memory_files() {
+            self.memory_files = files;
+        }
+        if let Ok(summary) = self.gateway.get_observation_summary() {
+            self.memory_summary = Some(summary);
+        }
+    }
+
+    /// Load the content of the currently selected memory file.
+    pub async fn load_selected_memory_file(&mut self) {
+        if let Some(file) = self.memory_files.get(self.memory_cursor) {
+            match self.gateway.read_memory_file(&file.name) {
+                Ok(content) => {
+                    self.memory_content = content.clone();
+                    self.memory_edit_content = content;
+                }
+                Err(e) => {
+                    self.memory_content = format!("Error: {e}");
+                    self.memory_edit_content.clear();
+                }
+            }
+        }
     }
 
     /// Refresh path policies from the database.

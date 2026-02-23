@@ -1,4 +1,5 @@
 mod agent_loop;
+pub mod gateway_bridge;
 mod llm;
 mod policy;
 mod tools;
@@ -191,9 +192,11 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
     // Step 3: create streaming channel for text deltas
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
 
-    // Build LLM client and tool registry (filtering out any disabled tools)
+    // Build LLM client, gateway bridge, and tool registry
     let client = llm::AnthropicClient::new(api_key.to_string());
-    let registry = tools::ToolRegistry::with_fs_tools(path_policies, &disabled_tools);
+    let (bridge, mut bridge_rx) = gateway_bridge::create_bridge();
+    let pending = std::sync::Arc::new(gateway_bridge::BridgePending::new());
+    let registry = tools::ToolRegistry::with_default_tools(path_policies, &disabled_tools, Some(bridge));
 
     // Step 4: run agent turn in a separate task, streaming text deltas
     let turn_handle = tokio::spawn(async move {
@@ -210,10 +213,60 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
         .await
     });
 
-    // Step 5: forward text deltas to the gateway as they arrive
-    while let Some(chunk) = rx.recv().await {
-        pipe.send(&AgentToGateway::TextDelta { content: chunk })
-            .await?;
+    // Step 5: multiplex between text deltas, bridge requests, and pipe responses
+    let mut turn_done = false;
+    loop {
+        tokio::select! {
+            // Text delta from the agent turn
+            chunk = rx.recv() => {
+                match chunk {
+                    Some(text) => {
+                        pipe.send(&AgentToGateway::TextDelta { content: text }).await?;
+                    }
+                    None => {
+                        // Agent turn's text channel closed — turn is finishing
+                        turn_done = true;
+                    }
+                }
+            }
+            // Process request from a tool via the bridge
+            req = bridge_rx.rx.recv() => {
+                if let Some((request_id, action, resp_tx)) = req {
+                    // Register the response waiter
+                    pending.register(request_id.clone(), resp_tx);
+                    // Send the request to the gateway
+                    pipe.send(&AgentToGateway::ProcessRequest {
+                        request_id,
+                        action,
+                    }).await?;
+                    // Now we need to read the response from the pipe
+                    // The gateway will send a ProcessResponse back
+                    if let Some(msg) = pipe.recv().await? {
+                        match msg {
+                            GatewayToAgent::ProcessResponse { request_id, result } => {
+                                pending.deliver(&request_id, result);
+                            }
+                            _ => {
+                                tracing::warn!("Unexpected message while waiting for ProcessResponse: {:?}", msg);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if turn_done {
+            // Drain any remaining bridge requests
+            while let Ok((request_id, action, resp_tx)) = bridge_rx.rx.try_recv() {
+                pending.register(request_id.clone(), resp_tx);
+                pipe.send(&AgentToGateway::ProcessRequest { request_id, action }).await?;
+                if let Some(msg) = pipe.recv().await? {
+                    if let GatewayToAgent::ProcessResponse { request_id, result } = msg {
+                        pending.deliver(&request_id, result);
+                    }
+                }
+            }
+            break;
+        }
     }
 
     // Step 6: get the final turn result

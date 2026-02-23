@@ -37,6 +37,13 @@ pub fn render(f: &mut Frame) {
         Line::from("  d              Delete selected path"),
         Line::from("  Space          Cycle access level"),
         Line::from(""),
+        Line::from("  ── Memory ──"),
+        Line::from("  ↑/↓            Select file"),
+        Line::from("  e              Edit selected file"),
+        Line::from("  Ctrl+S         Save edits"),
+        Line::from("  c              Consolidate memories"),
+        Line::from("  Esc            Cancel edit / Back"),
+        Line::from(""),
         Line::from(Span::styled(
             "  Press any key to close",
             Style::default().fg(Color::DarkGray),

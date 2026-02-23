@@ -4,6 +4,7 @@ pub mod db;
 pub mod events;
 pub mod ipc;
 pub mod memory;
+pub mod process_manager;
 pub mod session;
 pub mod system_prompt;
 
@@ -48,6 +49,7 @@ pub struct Gateway {
     db: Arc<Database>,
     config: Arc<RwLock<BatConfig>>,
     event_bus: EventBus,
+    process_manager: process_manager::ProcessManager,
 }
 
 impl Gateway {
@@ -63,12 +65,18 @@ impl Gateway {
             db,
             config: Arc::new(RwLock::new(config)),
             event_bus,
+            process_manager: process_manager::ProcessManager::new(),
         })
     }
 
     /// Subscribe to the event bus for streaming events from agents.
     pub fn subscribe_events(&self) -> broadcast::Receiver<AgentToGateway> {
         self.event_bus.subscribe()
+    }
+
+    /// Get a reference to the process manager.
+    pub fn process_manager(&self) -> &process_manager::ProcessManager {
+        &self.process_manager
     }
 
     // ─── Commands exposed to Tauri ────────────────────────────────────────────
@@ -140,6 +148,7 @@ impl Gateway {
         );
 
         let db = Arc::clone(&self.db);
+        let proc_mgr = self.process_manager.clone();
 
         // Spawn the agent turn in a background task
         tokio::spawn(async move {
@@ -159,6 +168,7 @@ impl Gateway {
                 event_bus.clone(),
                 session_manager,
                 db,
+                proc_mgr,
             )
             .await
             {
@@ -266,6 +276,55 @@ impl Gateway {
                 description: "Execute a shell command and return output.".to_string(),
                 icon: "⚡".to_string(),
                 enabled: !disabled.contains(&"shell_run".to_string()),
+            },
+            ToolInfo {
+                name: "exec_run".to_string(),
+                display_name: "Exec Run".to_string(),
+                description: "Start a process (foreground or background).".to_string(),
+                icon: "🖥️".to_string(),
+                enabled: !disabled.contains(&"exec_run".to_string()),
+            },
+            ToolInfo {
+                name: "exec_output".to_string(),
+                display_name: "Exec Output".to_string(),
+                description: "Get output from a background process.".to_string(),
+                icon: "📋".to_string(),
+                enabled: !disabled.contains(&"exec_output".to_string()),
+            },
+            ToolInfo {
+                name: "exec_write".to_string(),
+                display_name: "Exec Write".to_string(),
+                description: "Write to stdin of a background process.".to_string(),
+                icon: "✍️".to_string(),
+                enabled: !disabled.contains(&"exec_write".to_string()),
+            },
+            ToolInfo {
+                name: "exec_kill".to_string(),
+                display_name: "Exec Kill".to_string(),
+                description: "Kill a running background process.".to_string(),
+                icon: "🛑".to_string(),
+                enabled: !disabled.contains(&"exec_kill".to_string()),
+            },
+            ToolInfo {
+                name: "exec_list".to_string(),
+                display_name: "Exec List".to_string(),
+                description: "List all managed processes.".to_string(),
+                icon: "📊".to_string(),
+                enabled: !disabled.contains(&"exec_list".to_string()),
+            },
+            ToolInfo {
+                name: "app_open".to_string(),
+                display_name: "Open App/File".to_string(),
+                description: "Open a file, URL, or app with the system default handler.".to_string(),
+                icon: "🚀".to_string(),
+                enabled: !disabled.contains(&"app_open".to_string()),
+            },
+            ToolInfo {
+                name: "system_info".to_string(),
+                display_name: "System Info".to_string(),
+                description: "Get OS, CPU, memory, and disk information.".to_string(),
+                icon: "💻".to_string(),
+                enabled: !disabled.contains(&"system_info".to_string()),
             },
         ]
     }
@@ -510,6 +569,65 @@ fn audit(
     });
 }
 
+/// Handle a process management request from the agent.
+async fn handle_process_request(
+    proc_mgr: &process_manager::ProcessManager,
+    action: bat_types::ipc::ProcessAction,
+) -> bat_types::ipc::ProcessResult {
+    use bat_types::ipc::{ProcessAction, ProcessResult};
+
+    match action {
+        ProcessAction::Start { command, workdir, background } => {
+            if background {
+                match proc_mgr.spawn(&command, workdir.as_deref()).await {
+                    Ok(session_id) => ProcessResult::Started { session_id },
+                    Err(e) => ProcessResult::Error { message: e.to_string() },
+                }
+            } else {
+                match proc_mgr.run_foreground(&command, workdir.as_deref()).await {
+                    Ok((stdout, stderr, exit_code)) => ProcessResult::Output {
+                        session_id: String::new(),
+                        stdout,
+                        stderr,
+                        is_running: false,
+                        exit_code,
+                    },
+                    Err(e) => ProcessResult::Error { message: e.to_string() },
+                }
+            }
+        }
+        ProcessAction::GetOutput { session_id } => {
+            match proc_mgr.get_output(&session_id).await {
+                Ok((stdout, stderr, is_running, exit_code)) => ProcessResult::Output {
+                    session_id,
+                    stdout,
+                    stderr,
+                    is_running,
+                    exit_code,
+                },
+                Err(e) => ProcessResult::Error { message: e.to_string() },
+            }
+        }
+        ProcessAction::WriteStdin { session_id, data } => {
+            match proc_mgr.write_stdin(&session_id, &data).await {
+                Ok(()) => ProcessResult::Written,
+                Err(e) => ProcessResult::Error { message: e.to_string() },
+            }
+        }
+        ProcessAction::Kill { session_id } => {
+            match proc_mgr.kill(&session_id).await {
+                Ok(()) => ProcessResult::Killed,
+                Err(e) => ProcessResult::Error { message: e.to_string() },
+            }
+        }
+        ProcessAction::List => {
+            ProcessResult::ProcessList {
+                processes: proc_mgr.list().await,
+            }
+        }
+    }
+}
+
 async fn run_agent_turn(
     session_id: Uuid,
     model: String,
@@ -522,6 +640,7 @@ async fn run_agent_turn(
     event_bus: EventBus,
     session_manager: Arc<SessionManager>,
     db: Arc<Database>,
+    proc_mgr: process_manager::ProcessManager,
 ) -> Result<()> {
     let sid = session_id.to_string();
 
@@ -612,6 +731,15 @@ async fn run_agent_turn(
                     AgentToGateway::Error { message } => {
                         audit(&db, &event_bus, AuditLevel::Error, AuditCategory::Agent, "agent_error",
                             message, Some(&sid), None);
+                    }
+                    AgentToGateway::ProcessRequest { ref request_id, ref action } => {
+                        let result = handle_process_request(&proc_mgr, action.clone()).await;
+                        let _ = pipe.send(&GatewayToAgent::ProcessResponse {
+                            request_id: request_id.clone(),
+                            result,
+                        }).await;
+                        // Don't forward ProcessRequest to event bus
+                        continue;
                     }
                     _ => {}
                 }

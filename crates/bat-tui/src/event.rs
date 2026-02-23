@@ -84,6 +84,7 @@ async fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         Screen::Chat => handle_chat_key(app, key).await,
         Screen::Settings => handle_settings_key(app, key).await,
         Screen::Logs => handle_logs_key(app, key).await,
+        Screen::Memory => handle_memory_key(app, key).await,
     }
 }
 
@@ -381,7 +382,11 @@ async fn handle_onboarding_key(app: &mut App, key: KeyEvent) -> Result<()> {
 async fn handle_logs_key(app: &mut App, key: KeyEvent) -> Result<()> {
     match key.code {
         KeyCode::Tab => {
-            app.screen = Screen::Chat;
+            app.screen = Screen::Memory;
+            app.refresh_memory().await;
+            if !app.memory_files.is_empty() {
+                app.load_selected_memory_file().await;
+            }
         }
         KeyCode::Esc => {
             app.screen = Screen::Chat;
@@ -398,6 +403,98 @@ async fn handle_logs_key(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('g') => {
             // Jump to top (oldest)
             app.logs_scroll = app.audit_entries.len().saturating_sub(1);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_memory_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    // If editing a memory file, handle editing keys
+    if app.memory_editing {
+        match key.code {
+            KeyCode::Esc => {
+                app.memory_editing = false;
+                app.memory_edit_content = app.memory_content.clone();
+            }
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Save
+                if let Some(file) = app.memory_files.get(app.memory_cursor) {
+                    let name = file.name.clone();
+                    let content = app.memory_edit_content.clone();
+                    if let Err(e) = app.gateway.write_memory_file(&name, &content) {
+                        warn!("Failed to save memory file: {e}");
+                    } else {
+                        app.memory_content = content;
+                        app.memory_editing = false;
+                        app.refresh_memory().await;
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                app.memory_edit_content.push(c);
+            }
+            KeyCode::Enter => {
+                app.memory_edit_content.push('\n');
+            }
+            KeyCode::Backspace => {
+                app.memory_edit_content.pop();
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
+    match key.code {
+        KeyCode::Tab => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Esc => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Up => {
+            if !app.memory_files.is_empty() {
+                app.memory_cursor = app.memory_cursor.saturating_sub(1);
+                app.load_selected_memory_file().await;
+            }
+        }
+        KeyCode::Down => {
+            if !app.memory_files.is_empty() {
+                let max = app.memory_files.len().saturating_sub(1);
+                if app.memory_cursor < max {
+                    app.memory_cursor += 1;
+                    app.load_selected_memory_file().await;
+                }
+            }
+        }
+        KeyCode::Char('e') => {
+            if !app.memory_files.is_empty() {
+                app.memory_editing = true;
+                app.memory_edit_content = app.memory_content.clone();
+            }
+        }
+        KeyCode::Char('c') => {
+            if !app.memory_consolidating {
+                app.memory_consolidating = true;
+                app.memory_consolidation_result.clear();
+                let gw = app.gateway.clone();
+                match gw.trigger_consolidation().await {
+                    Ok(result) => {
+                        let summary = if result.files_updated.is_empty() {
+                            "No updates needed".to_string()
+                        } else {
+                            format!("Updated: {}", result.files_updated.join(", "))
+                        };
+                        app.memory_consolidation_result = summary;
+                        app.refresh_memory().await;
+                        app.load_selected_memory_file().await;
+                    }
+                    Err(e) => {
+                        app.memory_consolidation_result = format!("Error: {e}");
+                    }
+                }
+                app.memory_consolidating = false;
+            }
         }
         _ => {}
     }

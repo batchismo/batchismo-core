@@ -3,10 +3,19 @@ pub mod fs_write;
 pub mod fs_list;
 pub mod web_fetch;
 pub mod shell_run;
+pub mod exec_run;
+pub mod exec_output;
+pub mod exec_write;
+pub mod exec_kill;
+pub mod exec_list;
+pub mod app_open;
+pub mod system_info;
 
 use anyhow::Result;
 use bat_types::message::{ToolCall, ToolResult};
 use bat_types::policy::PathPolicy;
+
+use crate::gateway_bridge::GatewayBridge;
 
 /// Tool executor trait — each tool implements this.
 pub trait ToolExecutor: Send + Sync {
@@ -27,7 +36,7 @@ impl ToolRegistry {
     }
 
     /// Create a registry with all default tools, skipping any in `disabled`.
-    pub fn with_default_tools(policies: Vec<PathPolicy>, disabled: &[String]) -> Self {
+    pub fn with_default_tools(policies: Vec<PathPolicy>, disabled: &[String], bridge: Option<GatewayBridge>) -> Self {
         let mut reg = Self::new();
         if !disabled.contains(&"fs_read".to_string()) {
             reg.register(Box::new(fs_read::FsRead::new(policies.clone())));
@@ -44,12 +53,31 @@ impl ToolRegistry {
         if !disabled.contains(&"shell_run".to_string()) {
             reg.register(Box::new(shell_run::ShellRun::new()));
         }
+        if !disabled.contains(&"app_open".to_string()) {
+            reg.register(Box::new(app_open::AppOpen::new()));
+        }
+        if !disabled.contains(&"system_info".to_string()) {
+            reg.register(Box::new(system_info::SystemInfo::new()));
+        }
+        // Exec tools require a gateway bridge for IPC
+        if let Some(bridge) = bridge {
+            if !disabled.contains(&"exec_run".to_string()) {
+                reg.register(Box::new(exec_run::ExecRun::new(bridge.clone())));
+            }
+            if !disabled.contains(&"exec_output".to_string()) {
+                reg.register(Box::new(exec_output::ExecOutput::new(bridge.clone())));
+            }
+            if !disabled.contains(&"exec_write".to_string()) {
+                reg.register(Box::new(exec_write::ExecWrite::new(bridge.clone())));
+            }
+            if !disabled.contains(&"exec_kill".to_string()) {
+                reg.register(Box::new(exec_kill::ExecKill::new(bridge.clone())));
+            }
+            if !disabled.contains(&"exec_list".to_string()) {
+                reg.register(Box::new(exec_list::ExecList::new(bridge)));
+            }
+        }
         reg
-    }
-
-    /// Alias for backward compatibility.
-    pub fn with_fs_tools(policies: Vec<PathPolicy>, disabled: &[String]) -> Self {
-        Self::with_default_tools(policies, disabled)
     }
 
     pub fn register(&mut self, tool: Box<dyn ToolExecutor>) {
