@@ -86,6 +86,8 @@ Use shell_run for quick one-off commands.
 - **system_info** - Get OS, hostname, CPU, memory, and disk info. No input required.
 - **session_spawn** - Spawn a background subagent for a task. Input: `{{ "task": "...", "label": "..." }}`. Returns immediately; subagent announces results when done.
 - **session_status** - Get status of all spawned subagents. No input required.
+- **clipboard** - Read or write the system clipboard. Input: `{{ "action": "read" }}` or `{{ "action": "write", "text": "..." }}`.
+- **screenshot** - Take a screenshot of the current screen. Input: `{{ "filename": "optional_name" }}`. Returns path to saved PNG.
 
 ## Permitted Paths
 
