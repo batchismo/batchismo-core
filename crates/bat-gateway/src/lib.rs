@@ -1,3 +1,4 @@
+pub mod channels;
 pub mod config;
 pub mod consolidation;
 pub mod db;
@@ -71,6 +72,143 @@ impl Gateway {
             process_manager: process_manager::ProcessManager::new(),
             active_session_key: Arc::new(RwLock::new("main".to_string())),
         })
+    }
+
+    /// Start channel adapters (Telegram, etc.) based on config.
+    pub fn start_channels(&self) {
+        let cfg = self.config.read().unwrap().clone();
+
+        // Telegram
+        if let Some(ref tg_cfg) = cfg.channels.telegram {
+            if tg_cfg.enabled && !tg_cfg.bot_token.is_empty() {
+                let tg_config = channels::telegram::TelegramConfig {
+                    bot_token: tg_cfg.bot_token.clone(),
+                    allow_from: tg_cfg.allow_from.clone(),
+                };
+                let (mut inbound_rx, outbound_tx) = channels::telegram::TelegramAdapter::start(tg_config);
+
+                // Route inbound Telegram messages to the gateway
+                let event_bus = self.event_bus.clone();
+                let db = Arc::clone(&self.db);
+                let session_manager = Arc::clone(&self.session_manager);
+                let config = Arc::clone(&self.config);
+                let proc_mgr = self.process_manager.clone();
+                let outbound = outbound_tx.clone();
+
+                tokio::spawn(async move {
+                    // Subscribe to events for outbound responses
+                    let mut event_rx = event_bus.subscribe();
+
+                    // Track which chat_id to respond to
+                    let active_chat_id = std::sync::Arc::new(std::sync::Mutex::new(0i64));
+
+                    let chat_id_for_events = active_chat_id.clone();
+                    let outbound_for_events = outbound.clone();
+
+                    // Event forwarding task — send agent responses to Telegram
+                    tokio::spawn(async move {
+                        let mut pending_text = String::new();
+                        loop {
+                            match event_rx.recv().await {
+                                Ok(AgentToGateway::TextDelta { content }) => {
+                                    pending_text.push_str(&content);
+                                }
+                                Ok(AgentToGateway::TurnComplete { ref message }) => {
+                                    let chat_id = *chat_id_for_events.lock().unwrap();
+                                    if chat_id != 0 {
+                                        let text = if !message.content.is_empty() {
+                                            message.content.clone()
+                                        } else {
+                                            pending_text.clone()
+                                        };
+                                        if !text.is_empty() {
+                                            let _ = outbound_for_events.send(
+                                                channels::telegram::OutboundMessage {
+                                                    chat_id,
+                                                    text,
+                                                    reply_to: None,
+                                                    voice_data: None,
+                                                },
+                                            );
+                                        }
+                                    }
+                                    pending_text.clear();
+                                }
+                                Ok(AgentToGateway::Error { message }) => {
+                                    let chat_id = *chat_id_for_events.lock().unwrap();
+                                    if chat_id != 0 {
+                                        let _ = outbound_for_events.send(
+                                            channels::telegram::OutboundMessage {
+                                                chat_id,
+                                                text: format!("⚠️ {message}"),
+                                                reply_to: None,
+                                                voice_data: None,
+                                            },
+                                        );
+                                    }
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                                Err(_) => break,
+                                _ => {}
+                            }
+                        }
+                    });
+
+                    // Inbound message routing
+                    while let Some(msg) = inbound_rx.recv().await {
+                        *active_chat_id.lock().unwrap() = msg.chat_id;
+                        info!("Telegram inbound from user {}: {}", msg.user_id, &msg.text[..msg.text.len().min(50)]);
+
+                        // Get the active session and route the message
+                        let active_key = "main"; // Telegram routes to main session
+                        let model = config.read().unwrap().agent.model.clone();
+                        let session = match db.get_session_by_key(active_key) {
+                            Ok(Some(s)) => s,
+                            Ok(None) => match db.create_session(active_key, &model) {
+                                Ok(s) => s,
+                                Err(e) => { error!("Failed to create session: {e}"); continue; }
+                            },
+                            Err(e) => { error!("DB error: {e}"); continue; }
+                        };
+
+                        let history = session_manager.get_history(session.id).unwrap_or_default();
+
+                        let user_msg = bat_types::message::Message::user(session.id, &msg.text);
+                        let _ = session_manager.append_message(&user_msg);
+
+                        let (cfg_model, disabled_tools, cfg_api_key) = {
+                            let cfg = config.read().unwrap();
+                            (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), cfg.agent.api_key.clone())
+                        };
+                        let system_prompt = {
+                            let cfg = config.read().unwrap();
+                            let policies = db.get_path_policies().unwrap_or_default();
+                            crate::system_prompt::build_system_prompt(&cfg, &policies).unwrap_or_default()
+                        };
+                        let api_key = std::env::var("ANTHROPIC_API_KEY").ok().or(cfg_api_key).unwrap_or_default();
+                        let path_policies = db.get_path_policies().unwrap_or_default();
+
+                        let eb = event_bus.clone();
+                        let sm = Arc::new(SessionManager::new(Arc::clone(&db), cfg_model.clone()));
+                        let db2 = Arc::clone(&db);
+                        let pm = proc_mgr.clone();
+                        let cfg2 = Arc::clone(&config);
+
+                        tokio::spawn(async move {
+                            if let Err(e) = run_agent_turn(
+                                session.id, cfg_model, system_prompt, history, msg.text,
+                                path_policies, disabled_tools, api_key,
+                                eb, sm, db2, pm, cfg2,
+                            ).await {
+                                error!("Telegram agent turn failed: {e}");
+                            }
+                        });
+                    }
+                });
+
+                info!("Telegram channel adapter started");
+            }
+        }
     }
 
     /// Subscribe to the event bus for streaming events from agents.

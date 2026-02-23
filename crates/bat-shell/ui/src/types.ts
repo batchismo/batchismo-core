@@ -89,12 +89,23 @@ export interface AgentConfig {
   disabled_tools: string[]
 }
 
+export interface TelegramChannelConfig {
+  enabled: boolean
+  bot_token: string
+  allow_from: number[]
+}
+
+export interface ChannelsConfig {
+  telegram?: TelegramChannelConfig
+}
+
 export interface BatConfig {
   agent: AgentConfig
   gateway: { port: number; log_level: string }
   memory: { update_mode: string; consolidation_schedule: string; max_memory_file_size_kb: number }
   sandbox: { memory_limit_mb: number; cpu_shares: number; max_concurrent_subagents: number }
   paths: PathPolicy[]
+  channels?: ChannelsConfig
 }
 
 // Audit log types
@@ -212,4 +223,4 @@ export interface FolderAccess {
   access: string
   recursive: boolean
 }
-export type SettingsPage = 'path-policies' | 'tools' | 'agent-config' | 'about'
+export type SettingsPage = 'path-policies' | 'tools' | 'agent-config' | 'channels' | 'about'

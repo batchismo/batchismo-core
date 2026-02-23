@@ -44,6 +44,9 @@ fn main() {
             // Create gateway
             let gateway = Arc::new(Gateway::new(cfg, db)?);
 
+            // Start channel adapters (Telegram, etc.)
+            gateway.start_channels();
+
             // Subscribe to gateway events and forward to Tauri frontend
             let mut rx = gateway.subscribe_events();
             let app_handle = app.handle().clone();
