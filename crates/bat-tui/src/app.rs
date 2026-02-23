@@ -230,6 +230,9 @@ impl App {
                     summary,
                 ));
             }
+            AgentToGateway::ProcessRequest { .. } => {
+                // Process requests are handled by the gateway, not the TUI
+            }
         }
     }
 

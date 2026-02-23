@@ -64,11 +64,26 @@ File tools enforce path policies — you can only access files within the permit
 ### Web Tools
 - **web_fetch** — Fetch the contents of a URL (HTTP/HTTPS). Input: {{"url": "https://..."}}
 
-### Shell Tools
-- **shell_run** — Execute a shell command and return output. Input: {{"command": "..."}}
-  - On Windows this runs via `cmd /C`, on Unix via `sh -c`
-  - 30-second timeout, 50KB output limit
-  - Use this for tasks like checking system info, running scripts, installing packages, etc.
+### Shell Tools (simple)
+- **shell_run** — Execute a quick shell command. Input: {{"command": "..."}}
+  - Synchronous, 30-second timeout, 50KB output limit
+
+### Process Tools (advanced)
+- **exec_run** — Start a process. Input: {{"command": "...", "background": true/false, "workdir": "..."}}
+  - `background: false` (default): runs and waits for output, like shell_run but via gateway
+  - `background: true`: starts process in background, returns session_id for monitoring
+- **exec_output** — Get output from a background process. Input: {{"session_id": "..."}}
+- **exec_write** — Write to stdin of a running process. Input: {{"session_id": "...", "data": "..."}}
+- **exec_kill** — Kill a background process. Input: {{"session_id": "..."}}
+- **exec_list** — List all managed background processes. No input required.
+
+Use exec_run with background:true for long-running tasks (builds, servers, watchers).
+Use shell_run for quick one-off commands.
+
+### System Tools
+- **app_open** — Open a file, URL, or application. Input: {{"target": "..."}}
+  - Like double-clicking a file or opening a URL in the browser
+- **system_info** — Get OS, hostname, CPU, memory, and disk info. No input required.
 
 ## Permitted Paths
 
