@@ -10,6 +10,10 @@ pub mod exec_kill;
 pub mod exec_list;
 pub mod app_open;
 pub mod system_info;
+pub mod session_spawn;
+pub mod session_status;
+pub mod clipboard;
+pub mod screenshot;
 
 use anyhow::Result;
 use bat_types::message::{ToolCall, ToolResult};
@@ -59,6 +63,12 @@ impl ToolRegistry {
         if !disabled.contains(&"system_info".to_string()) {
             reg.register(Box::new(system_info::SystemInfo::new()));
         }
+        if !disabled.contains(&"clipboard".to_string()) {
+            reg.register(Box::new(clipboard::Clipboard::new()));
+        }
+        if !disabled.contains(&"screenshot".to_string()) {
+            reg.register(Box::new(screenshot::Screenshot::new()));
+        }
         // Exec tools require a gateway bridge for IPC
         if let Some(bridge) = bridge {
             if !disabled.contains(&"exec_run".to_string()) {
@@ -74,7 +84,13 @@ impl ToolRegistry {
                 reg.register(Box::new(exec_kill::ExecKill::new(bridge.clone())));
             }
             if !disabled.contains(&"exec_list".to_string()) {
-                reg.register(Box::new(exec_list::ExecList::new(bridge)));
+                reg.register(Box::new(exec_list::ExecList::new(bridge.clone())));
+            }
+            if !disabled.contains(&"session_spawn".to_string()) {
+                reg.register(Box::new(session_spawn::SessionSpawn::new(bridge.clone())));
+            }
+            if !disabled.contains(&"session_status".to_string()) {
+                reg.register(Box::new(session_status::SessionStatus::new(bridge)));
             }
         }
         reg

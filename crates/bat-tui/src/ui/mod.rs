@@ -1,3 +1,4 @@
+mod activity;
 mod chat;
 mod help;
 mod logs;
@@ -17,6 +18,7 @@ pub fn render(f: &mut Frame, app: &App) {
         Screen::Settings => settings::render(f, app),
         Screen::Logs => logs::render(f, app),
         Screen::Memory => memory::render(f, app),
+        Screen::Activity => activity::render(f, app),
     }
 
     // Help overlay on top of everything

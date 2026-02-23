@@ -52,6 +52,18 @@ pub async fn get_session(
         .map_err(|e| e.to_string())
 }
 
+/// Get all subagent sessions.
+#[tauri::command]
+pub async fn get_subagents(
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_types::session::SubagentInfo>, String> {
+    state
+        .gateway
+        .get_subagents()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Get all configured path policies.
 #[tauri::command]
 pub async fn get_path_policies(

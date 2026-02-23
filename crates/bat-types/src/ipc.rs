@@ -87,6 +87,17 @@ pub enum ProcessAction {
     },
     /// List all managed processes.
     List,
+    /// Spawn a subagent.
+    SpawnSubagent {
+        task: String,
+        label: Option<String>,
+    },
+    /// Get status of subagents.
+    ListSubagents,
+    /// Cancel a running subagent.
+    CancelSubagent {
+        session_key: String,
+    },
 }
 
 /// Result of a process management request.
@@ -111,6 +122,14 @@ pub enum ProcessResult {
     Error {
         message: String,
     },
+    SubagentSpawned {
+        session_key: String,
+        session_id: String,
+    },
+    SubagentList {
+        subagents: Vec<crate::session::SubagentInfo>,
+    },
+    SubagentCancelled,
 }
 
 /// Info about a managed process.

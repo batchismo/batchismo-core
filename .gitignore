@@ -31,3 +31,5 @@ project/
 *.p12
 *.pfx
 config.local.toml
+
+cortana-log.md

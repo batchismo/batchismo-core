@@ -14,6 +14,7 @@ pub enum Screen {
     Settings,
     Logs,
     Memory,
+    Activity,
 }
 
 /// Settings sub-pages.
@@ -111,6 +112,11 @@ pub struct App {
     pub memory_consolidating: bool,
     pub memory_consolidation_result: String,
 
+    // Activity (subagents)
+    pub subagents: Vec<bat_types::session::SubagentInfo>,
+    pub activity_cursor: usize,
+    pub activity_expanded: bool,
+
     // Onboarding
     pub onboarding_step: u8,          // 0=welcome, 1=apikey, 2=name, 3=access, 4=ready
     pub onboarding_api_key: String,
@@ -163,6 +169,10 @@ impl App {
             memory_summary: None,
             memory_consolidating: false,
             memory_consolidation_result: String::new(),
+
+            subagents: Vec::new(),
+            activity_cursor: 0,
+            activity_expanded: false,
 
             onboarding_step: 0,
             onboarding_api_key: String::new(),
@@ -277,6 +287,16 @@ impl App {
                     self.memory_content = format!("Error: {e}");
                     self.memory_edit_content.clear();
                 }
+            }
+        }
+    }
+
+    /// Refresh subagent list from the gateway.
+    pub async fn refresh_subagents(&mut self) {
+        if let Ok(agents) = self.gateway.get_subagents().await {
+            self.subagents = agents;
+            if self.activity_cursor >= self.subagents.len() && !self.subagents.is_empty() {
+                self.activity_cursor = self.subagents.len() - 1;
             }
         }
     }
