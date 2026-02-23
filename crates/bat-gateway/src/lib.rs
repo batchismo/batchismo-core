@@ -5,6 +5,7 @@ pub mod events;
 pub mod ipc;
 pub mod memory;
 pub mod process_manager;
+pub mod sandbox;
 pub mod session;
 pub mod system_prompt;
 
@@ -15,7 +16,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use bat_types::{
@@ -766,6 +767,28 @@ async fn run_agent_turn(
     info!("Spawned bat-agent (pid: {})", pid);
     audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Agent, "agent_spawn",
         &format!("Agent spawned (pid: {pid}, model: {model})"), Some(&sid), None);
+
+    // Apply OS-native sandbox
+    let sandbox_cfg = {
+        let cfg = gw_config.read().unwrap();
+        sandbox::SandboxConfig {
+            memory_limit_mb: cfg.sandbox.memory_limit_mb as u64,
+            ..Default::default()
+        }
+    };
+    let _sandbox_handle = match sandbox::apply_sandbox(pid, &sandbox_cfg) {
+        Ok(handle) => {
+            audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Agent, "sandbox_applied",
+                &format!("Sandbox applied (pid: {pid}, mem: {}MB)", sandbox_cfg.memory_limit_mb), Some(&sid), None);
+            Some(handle)
+        }
+        Err(e) => {
+            warn!("Failed to apply sandbox: {e}");
+            audit(&db, &event_bus, AuditLevel::Warn, AuditCategory::Agent, "sandbox_failed",
+                &format!("Sandbox failed: {e}"), Some(&sid), None);
+            None
+        }
+    };
 
     // 3. Wait for agent to connect
     let mut pipe = ipc::wait_for_agent(server)
