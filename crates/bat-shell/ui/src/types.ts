@@ -56,8 +56,19 @@ export type BatEvent =
 // Settings types
 export interface ToolInfo {
   name: string
+  displayName: string
   description: string
+  icon: string
   enabled: boolean
+}
+
+// Tool display name mapping for chat UI
+export const TOOL_DISPLAY: Record<string, { name: string; icon: string }> = {
+  fs_read: { name: 'Read File', icon: '📄' },
+  fs_write: { name: 'Write File', icon: '✏️' },
+  fs_list: { name: 'List Directory', icon: '📁' },
+  web_fetch: { name: 'Fetch URL', icon: '🌐' },
+  shell_run: { name: 'Run Command', icon: '⚡' },
 }
 
 export interface AgentConfig {

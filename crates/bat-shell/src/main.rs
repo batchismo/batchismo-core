@@ -104,6 +104,7 @@ fn main() {
             commands::update_memory_file,
             commands::get_observations,
             commands::get_observation_summary,
+            commands::trigger_consolidation,
             commands::is_onboarding_complete,
             commands::validate_api_key,
             commands::complete_onboarding,

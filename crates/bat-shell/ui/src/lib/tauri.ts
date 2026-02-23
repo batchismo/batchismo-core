@@ -56,6 +56,9 @@ export const getObservations = (filter: ObservationFilter): Promise<Observation[
 export const getObservationSummary = (): Promise<ObservationSummary> =>
   invoke('get_observation_summary')
 
+export const triggerConsolidation = (): Promise<string> =>
+  invoke('trigger_consolidation')
+
 // Onboarding
 export const isOnboardingComplete = (): Promise<boolean> =>
   invoke('is_onboarding_complete')

@@ -1,6 +1,8 @@
 pub mod fs_read;
 pub mod fs_write;
 pub mod fs_list;
+pub mod web_fetch;
+pub mod shell_run;
 
 use anyhow::Result;
 use bat_types::message::{ToolCall, ToolResult};
@@ -24,8 +26,8 @@ impl ToolRegistry {
         Self { tools: vec![] }
     }
 
-    /// Create a registry with the default filesystem tools, skipping any in `disabled`.
-    pub fn with_fs_tools(policies: Vec<PathPolicy>, disabled: &[String]) -> Self {
+    /// Create a registry with all default tools, skipping any in `disabled`.
+    pub fn with_default_tools(policies: Vec<PathPolicy>, disabled: &[String]) -> Self {
         let mut reg = Self::new();
         if !disabled.contains(&"fs_read".to_string()) {
             reg.register(Box::new(fs_read::FsRead::new(policies.clone())));
@@ -36,7 +38,18 @@ impl ToolRegistry {
         if !disabled.contains(&"fs_list".to_string()) {
             reg.register(Box::new(fs_list::FsList::new(policies)));
         }
+        if !disabled.contains(&"web_fetch".to_string()) {
+            reg.register(Box::new(web_fetch::WebFetch::new()));
+        }
+        if !disabled.contains(&"shell_run".to_string()) {
+            reg.register(Box::new(shell_run::ShellRun::new()));
+        }
         reg
+    }
+
+    /// Alias for backward compatibility.
+    pub fn with_fs_tools(policies: Vec<PathPolicy>, disabled: &[String]) -> Self {
+        Self::with_default_tools(policies, disabled)
     }
 
     pub fn register(&mut self, tool: Box<dyn ToolExecutor>) {

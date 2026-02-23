@@ -1,4 +1,5 @@
 pub mod config;
+pub mod consolidation;
 pub mod db;
 pub mod events;
 pub mod ipc;
@@ -31,9 +32,12 @@ use session::SessionManager;
 
 /// Metadata about a registered tool (for the Settings UI).
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolInfo {
     pub name: String,
+    pub display_name: String,
     pub description: String,
+    pub icon: String,
     pub enabled: bool,
 }
 
@@ -223,24 +227,44 @@ impl Gateway {
         Ok(())
     }
 
-    /// Returns info about all known tools (name, description, enabled state).
+    /// Returns info about all known tools (name, display name, description, enabled state).
     pub fn get_tools_info(&self) -> Vec<ToolInfo> {
         let disabled = self.config.read().unwrap().agent.disabled_tools.clone();
         vec![
             ToolInfo {
                 name: "fs_read".to_string(),
+                display_name: "Read File".to_string(),
                 description: "Read the contents of a file on disk.".to_string(),
+                icon: "📄".to_string(),
                 enabled: !disabled.contains(&"fs_read".to_string()),
             },
             ToolInfo {
                 name: "fs_write".to_string(),
+                display_name: "Write File".to_string(),
                 description: "Write or create files on disk.".to_string(),
+                icon: "✏️".to_string(),
                 enabled: !disabled.contains(&"fs_write".to_string()),
             },
             ToolInfo {
                 name: "fs_list".to_string(),
+                display_name: "List Directory".to_string(),
                 description: "List the contents of a directory.".to_string(),
+                icon: "📁".to_string(),
                 enabled: !disabled.contains(&"fs_list".to_string()),
+            },
+            ToolInfo {
+                name: "web_fetch".to_string(),
+                display_name: "Fetch URL".to_string(),
+                description: "Fetch content from a web URL.".to_string(),
+                icon: "🌐".to_string(),
+                enabled: !disabled.contains(&"web_fetch".to_string()),
+            },
+            ToolInfo {
+                name: "shell_run".to_string(),
+                display_name: "Run Command".to_string(),
+                description: "Execute a shell command and return output.".to_string(),
+                icon: "⚡".to_string(),
+                enabled: !disabled.contains(&"shell_run".to_string()),
             },
         ]
     }
@@ -428,6 +452,22 @@ impl Gateway {
     /// Read a memory file.
     pub fn read_memory_file(&self, name: &str) -> Result<String> {
         memory::read_memory_file(name)
+    }
+
+    /// Trigger memory consolidation (LLM-powered update of MEMORY.md + PATTERNS.md).
+    pub async fn trigger_consolidation(&self) -> Result<consolidation::ConsolidationResult> {
+        let (api_key, model) = {
+            let cfg = self.config.read().unwrap();
+            let key = std::env::var("ANTHROPIC_API_KEY")
+                .ok()
+                .or_else(|| cfg.agent.api_key.clone())
+                .ok_or_else(|| anyhow::anyhow!("No API key configured"))?;
+            // Use a smaller model for consolidation to save costs
+            let model = "claude-haiku-4-5-20241022".to_string();
+            (key, model)
+        };
+
+        consolidation::run_consolidation(&self.db, &self.event_bus, &api_key, &model).await
     }
 
     /// Write a memory file.

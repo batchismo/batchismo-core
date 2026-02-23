@@ -86,8 +86,11 @@ export function ToolsPage() {
                 {toolIcon(tool.name)}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white font-mono">{tool.name}</p>
+                <p className="text-sm font-medium text-white">
+                  {tool.icon} {tool.displayName}
+                </p>
                 <p className="text-xs text-zinc-400 mt-0.5">{tool.description}</p>
+                <p className="text-xs text-zinc-600 font-mono mt-0.5">{tool.name}</p>
               </div>
               <button
                 onClick={() => handleToggle(tool.name, tool.enabled)}

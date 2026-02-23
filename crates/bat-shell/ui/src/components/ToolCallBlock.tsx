@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ToolCall, ToolResult } from '../types'
+import { TOOL_DISPLAY } from '../types'
 
 interface Props {
   toolCall: ToolCall
@@ -14,7 +15,10 @@ export function ToolCallBlock({ toolCall, result }: Props) {
         onClick={() => setOpen(o => !o)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-zinc-400 hover:text-zinc-200"
       >
-        <span className="font-mono text-indigo-400">{toolCall.name}</span>
+        <span className="text-indigo-400">
+          {TOOL_DISPLAY[toolCall.name]?.icon ?? '🔧'}{' '}
+          {TOOL_DISPLAY[toolCall.name]?.name ?? toolCall.name}
+        </span>
         <span className="ml-auto">{open ? '▲' : '▼'}</span>
       </button>
       {open && (

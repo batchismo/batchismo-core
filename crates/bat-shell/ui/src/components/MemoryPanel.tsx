@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MemoryFileInfo, ObservationSummary } from '../types'
-import { getMemoryFiles, getMemoryFile, updateMemoryFile, getObservationSummary } from '../lib/tauri'
+import { getMemoryFiles, getMemoryFile, updateMemoryFile, getObservationSummary, triggerConsolidation } from '../lib/tauri'
 
 export function MemoryPanel() {
   const [files, setFiles] = useState<MemoryFileInfo[]>([])
@@ -10,6 +10,8 @@ export function MemoryPanel() {
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [summary, setSummary] = useState<ObservationSummary | null>(null)
+  const [consolidating, setConsolidating] = useState(false)
+  const [consolidateResult, setConsolidateResult] = useState('')
 
   useEffect(() => {
     loadFiles()
@@ -51,6 +53,23 @@ export function MemoryPanel() {
       console.error('Failed to save:', e)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleConsolidate() {
+    setConsolidating(true)
+    setConsolidateResult('')
+    try {
+      const result = await triggerConsolidation()
+      setConsolidateResult(result)
+      // Reload files after consolidation
+      await loadFiles()
+      if (selectedFile) await selectFile(selectedFile)
+      getObservationSummary().then(setSummary).catch(console.error)
+    } catch (e) {
+      setConsolidateResult(`Error: ${e}`)
+    } finally {
+      setConsolidating(false)
     }
   }
 
@@ -135,6 +154,20 @@ export function MemoryPanel() {
                 </>
               )}
             </div>
+
+            {/* Consolidate button */}
+            <button
+              onClick={handleConsolidate}
+              disabled={consolidating || (summary?.totalObservations ?? 0) === 0}
+              className="w-full mt-3 px-3 py-1.5 text-xs bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/30 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+            >
+              {consolidating ? 'Consolidating...' : '🧠 Consolidate Now'}
+            </button>
+            {consolidateResult && (
+              <p className={`text-xs mt-1.5 ${consolidateResult.startsWith('Error') ? 'text-red-400' : 'text-zinc-400'}`}>
+                {consolidateResult}
+              </p>
+            )}
           </div>
         )}
       </div>

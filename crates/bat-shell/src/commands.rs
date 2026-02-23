@@ -202,6 +202,21 @@ pub fn get_observation_summary(state: State<'_, AppState>) -> Result<Observation
     state.gateway.get_observation_summary().map_err(|e| e.to_string())
 }
 
+/// Trigger memory consolidation.
+#[tauri::command]
+pub async fn trigger_consolidation(state: State<'_, AppState>) -> Result<String, String> {
+    let result = state
+        .gateway
+        .trigger_consolidation()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "{} observations processed, {} files updated",
+        result.observations_processed,
+        result.files_updated.join(", ")
+    ))
+}
+
 // ─── Audit ─────────────────────────────────────────────────────────────
 
 /// Query audit log entries with optional filters.
