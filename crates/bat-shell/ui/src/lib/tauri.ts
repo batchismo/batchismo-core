@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats } from '../types'
 
 export const sendMessage = (content: string): Promise<void> =>
   invoke('send_message', { content })
@@ -77,6 +77,10 @@ export const renameSession = (oldKey: string, newKey: string): Promise<void> =>
 
 export const getActiveSessionKey = (): Promise<string> =>
   invoke('get_active_session_key')
+
+// Usage
+export const getUsageStats = (): Promise<UsageStats> =>
+  invoke('get_usage_stats')
 
 // Subagents
 export const getSubagents = (): Promise<SubagentInfo[]> =>

@@ -163,6 +163,31 @@ export interface MemoryFileInfo {
   modifiedAt: string | null
 }
 
+// Usage types
+export interface UsageStats {
+  totalInput: number
+  totalOutput: number
+  sessions: SessionUsage[]
+  byModel: ModelUsage[]
+  estimatedCostUsd: number
+}
+
+export interface SessionUsage {
+  key: string
+  model: string
+  tokenInput: number
+  tokenOutput: number
+  messageCount: number
+  lastActive: string
+}
+
+export interface ModelUsage {
+  model: string
+  tokenInput: number
+  tokenOutput: number
+  sessionCount: number
+}
+
 // Subagent types
 export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
@@ -179,7 +204,7 @@ export interface SubagentInfo {
   tokenOutput: number
 }
 
-export type AppView = 'chat' | 'settings' | 'logs' | 'memory' | 'activity'
+export type AppView = 'chat' | 'settings' | 'logs' | 'memory' | 'activity' | 'usage'
 
 // Onboarding
 export interface FolderAccess {

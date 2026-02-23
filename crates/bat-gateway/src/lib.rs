@@ -271,6 +271,11 @@ impl Gateway {
         Ok(())
     }
 
+    /// Get token usage statistics.
+    pub fn get_usage_stats(&self) -> Result<bat_types::usage::UsageStats> {
+        self.db.get_usage_stats()
+    }
+
     /// Get all subagent sessions for the main session.
     pub async fn get_subagents(&self) -> Result<Vec<bat_types::session::SubagentInfo>> {
         let session = self.session_manager.get_or_create_main()?;

@@ -105,6 +105,14 @@ pub fn get_active_session_key(
     state.gateway.active_session_key()
 }
 
+/// Get token usage statistics.
+#[tauri::command]
+pub fn get_usage_stats(
+    state: State<'_, AppState>,
+) -> Result<bat_types::usage::UsageStats, String> {
+    state.gateway.get_usage_stats().map_err(|e| e.to_string())
+}
+
 /// Get all subagent sessions.
 #[tauri::command]
 pub async fn get_subagents(
