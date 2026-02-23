@@ -39,32 +39,50 @@ pub fn build_system_prompt(config: &BatConfig, path_policies: &[PathPolicy]) -> 
 
     let identity = read_md(&workspace.join("IDENTITY.md"));
     let memory = read_md(&workspace.join("MEMORY.md"));
+    let patterns = read_md(&workspace.join("PATTERNS.md"));
     let skills = read_md(&workspace.join("SKILLS.md"));
 
     let agent_name = &config.agent.name;
     let policies_str = format_policies(path_policies);
 
     let prompt = format!(
-        r#"You are {agent_name}, a personal AI assistant running on the user's computer via Batchismo.
+        r#"You are {agent_name}, a personal AI assistant running locally on the user's computer via Batchismo.
 
 {identity}
 
-## Capabilities
+## Tools
 
-You have access to the following tools for working with files on the user's computer:
-- **fs.read** — Read the contents of a file
-- **fs.write** — Write or create files
-- **fs.list** — List directory contents
+You have these tools available:
 
-You may only access files within the user's permitted paths. If a path is not in the list below, you will receive an access-denied error.
+### File Tools
+- **fs_read** — Read the contents of a file. Input: {{"path": "..."}}
+- **fs_write** — Write or create a file. Input: {{"path": "...", "content": "..."}}
+- **fs_list** — List directory contents. Input: {{"path": "..."}}
+
+File tools enforce path policies — you can only access files within the permitted paths below.
+
+### Web Tools
+- **web_fetch** — Fetch the contents of a URL (HTTP/HTTPS). Input: {{"url": "https://..."}}
+
+### Shell Tools
+- **shell_run** — Execute a shell command and return output. Input: {{"command": "..."}}
+  - On Windows this runs via `cmd /C`, on Unix via `sh -c`
+  - 30-second timeout, 50KB output limit
+  - Use this for tasks like checking system info, running scripts, installing packages, etc.
 
 ## Permitted Paths
 
 {policies_str}
 
+File operations outside these paths will be denied.
+
 ## Memory
 
 {memory}
+
+## Patterns
+
+{patterns}
 
 ## Skills
 
@@ -72,10 +90,13 @@ You may only access files within the user's permitted paths. If a path is not in
 
 ## Guidelines
 
-- Be helpful, concise, and accurate.
-- Always explain what you are about to do before taking file actions.
-- If a file operation fails, report the error clearly and suggest alternatives.
-- Do not attempt to access paths outside the permitted list.
+- Be helpful, concise, and direct. Don't add unnecessary preamble.
+- Use your tools proactively — if the user asks you to do something, do it rather than just explaining how.
+- For file operations, go ahead and act. Explain briefly what you did after.
+- If an operation fails, report the error clearly and suggest alternatives.
+- When using shell_run, prefer simple commands. For complex multi-step tasks, break them into individual commands.
+- Use web_fetch to look up information when you're not sure about something.
+- You're running locally on the user's machine — you have real access to their files and system. Use it responsibly.
 "#
     );
 

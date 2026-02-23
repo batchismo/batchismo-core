@@ -80,7 +80,12 @@ fn init_workspace(workspace: &Path) -> Result<()> {
 
     let skills = workspace.join("SKILLS.md");
     if !skills.exists() {
-        std::fs::write(&skills, "# Skills Index\n\n- **File Management** — Read, write, and organize files\n")?;
+        std::fs::write(&skills, "# Skills Index\n\n- **File Management** — Read, write, and organize files\n- **Web Research** — Fetch and read web pages\n- **Shell Commands** — Execute system commands\n")?;
+    }
+
+    let patterns = workspace.join("PATTERNS.md");
+    if !patterns.exists() {
+        std::fs::write(&patterns, "# Behavioral Patterns\n\n_No patterns observed yet. I'll track how you work and note useful patterns here._\n")?;
     }
 
     Ok(())
