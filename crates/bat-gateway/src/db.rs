@@ -178,6 +178,43 @@ impl Database {
         self.create_session("main", model)
     }
 
+    /// List all user-created sessions (excludes subagents).
+    pub fn list_sessions(&self) -> Result<Vec<SessionMeta>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, key, model, status, token_input, token_output, created_at, updated_at
+             FROM sessions WHERE kind = 'main' ORDER BY updated_at DESC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(row_to_session(row))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row??);
+        }
+        Ok(result)
+    }
+
+    /// Delete a session and all its messages.
+    pub fn delete_session(&self, session_id: Uuid) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let id_str = session_id.to_string();
+        conn.execute("DELETE FROM tool_calls WHERE session_id = ?1", params![id_str])?;
+        conn.execute("DELETE FROM messages WHERE session_id = ?1", params![id_str])?;
+        conn.execute("DELETE FROM sessions WHERE id = ?1", params![id_str])?;
+        Ok(())
+    }
+
+    /// Rename a session.
+    pub fn rename_session(&self, session_id: Uuid, new_key: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE sessions SET key = ?1, updated_at = ?2 WHERE id = ?3",
+            params![new_key, Utc::now().to_rfc3339(), session_id.to_string()],
+        )?;
+        Ok(())
+    }
+
     pub fn update_token_usage(&self, session_id: Uuid, input: i64, output: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

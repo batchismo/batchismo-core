@@ -52,6 +52,59 @@ pub async fn get_session(
         .map_err(|e| e.to_string())
 }
 
+/// List all user sessions.
+#[tauri::command]
+pub fn list_sessions(
+    state: State<'_, AppState>,
+) -> Result<Vec<SessionMeta>, String> {
+    state.gateway.list_sessions().map_err(|e| e.to_string())
+}
+
+/// Create a new named session.
+#[tauri::command]
+pub fn create_session(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<SessionMeta, String> {
+    state.gateway.create_named_session(&name).map_err(|e| e.to_string())
+}
+
+/// Switch active session.
+#[tauri::command]
+pub fn switch_session(
+    key: String,
+    state: State<'_, AppState>,
+) -> Result<SessionMeta, String> {
+    state.gateway.switch_session(&key).map_err(|e| e.to_string())
+}
+
+/// Delete a session.
+#[tauri::command]
+pub fn delete_session_by_key(
+    key: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.gateway.delete_session(&key).map_err(|e| e.to_string())
+}
+
+/// Rename a session.
+#[tauri::command]
+pub fn rename_session(
+    old_key: String,
+    new_key: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.gateway.rename_session(&old_key, &new_key).map_err(|e| e.to_string())
+}
+
+/// Get the active session key.
+#[tauri::command]
+pub fn get_active_session_key(
+    state: State<'_, AppState>,
+) -> String {
+    state.gateway.active_session_key()
+}
+
 /// Get all subagent sessions.
 #[tauri::command]
 pub async fn get_subagents(

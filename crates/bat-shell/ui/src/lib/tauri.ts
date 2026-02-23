@@ -59,6 +59,25 @@ export const getObservationSummary = (): Promise<ObservationSummary> =>
 export const triggerConsolidation = (): Promise<string> =>
   invoke('trigger_consolidation')
 
+// Sessions
+export const listSessions = (): Promise<SessionMeta[]> =>
+  invoke('list_sessions')
+
+export const createSession = (name: string): Promise<SessionMeta> =>
+  invoke('create_session', { name })
+
+export const switchSession = (key: string): Promise<SessionMeta> =>
+  invoke('switch_session', { key })
+
+export const deleteSessionByKey = (key: string): Promise<void> =>
+  invoke('delete_session_by_key', { key })
+
+export const renameSession = (oldKey: string, newKey: string): Promise<void> =>
+  invoke('rename_session', { oldKey, newKey })
+
+export const getActiveSessionKey = (): Promise<string> =>
+  invoke('get_active_session_key')
+
 // Subagents
 export const getSubagents = (): Promise<SubagentInfo[]> =>
   invoke('get_subagents')

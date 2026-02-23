@@ -10,6 +10,7 @@ import { SettingsPanel } from './components/settings/SettingsPanel'
 import { LogsPanel } from './components/LogsPanel'
 import { MemoryPanel } from './components/MemoryPanel'
 import { ActivityPanel } from './components/ActivityPanel'
+import { SessionSwitcher } from './components/SessionSwitcher'
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 
 export default function App() {
@@ -59,10 +60,19 @@ export default function App() {
           <span className="text-base font-semibold tracking-tight text-white">
             {activeView === 'chat' ? 'Chat' : activeView === 'memory' ? 'Memory' : activeView === 'activity' ? 'Activity' : activeView === 'logs' ? 'Audit Log' : 'Settings'}
           </span>
-          {activeView === 'chat' && session && (
-            <span className="text-xs text-zinc-500 font-mono ml-1">
-              {session.model.replace('anthropic/', '')}
-            </span>
+          {activeView === 'chat' && (
+            <div className="flex items-center gap-2 ml-1">
+              <SessionSwitcher onSessionChange={(s) => {
+                setSession(s)
+                // Re-fetch messages when session changes
+                getSession().then(setSession).catch(console.error)
+              }} />
+              {session && (
+                <span className="text-xs text-zinc-500 font-mono">
+                  {session.model.replace('anthropic/', '')}
+                </span>
+              )}
+            </div>
           )}
         </header>
 

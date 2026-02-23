@@ -111,6 +111,12 @@ fn main() {
             commands::get_audit_logs,
             commands::get_audit_stats,
             commands::get_subagents,
+            commands::list_sessions,
+            commands::create_session,
+            commands::switch_session,
+            commands::delete_session_by_key,
+            commands::rename_session,
+            commands::get_active_session_key,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Batchismo");

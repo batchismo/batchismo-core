@@ -51,6 +51,8 @@ pub struct Gateway {
     config: Arc<RwLock<BatConfig>>,
     event_bus: EventBus,
     process_manager: process_manager::ProcessManager,
+    /// Key of the currently active session.
+    active_session_key: Arc<RwLock<String>>,
 }
 
 impl Gateway {
@@ -67,6 +69,7 @@ impl Gateway {
             config: Arc::new(RwLock::new(config)),
             event_bus,
             process_manager: process_manager::ProcessManager::new(),
+            active_session_key: Arc::new(RwLock::new("main".to_string())),
         })
     }
 
@@ -84,11 +87,24 @@ impl Gateway {
 
     /// Send a user message. Persists the message, spawns the agent in the
     /// background, and returns immediately. Events arrive via the event bus.
+    /// Get or create a session by key.
+    fn get_or_create_session(&self, key: &str) -> Result<SessionMeta> {
+        if key == "main" {
+            self.session_manager.get_or_create_main()
+        } else {
+            match self.db.get_session_by_key(key)? {
+                Some(s) => Ok(s),
+                None => {
+                    let model = self.config.read().unwrap().agent.model.clone();
+                    self.db.create_session(key, &model)
+                }
+            }
+        }
+    }
+
     pub async fn send_user_message(&self, content: &str) -> Result<()> {
-        let session = self
-            .session_manager
-            .get_or_create_main()
-            .context("Failed to get or create main session")?;
+        let active_key = self.active_session_key();
+        let session = self.get_or_create_session(&active_key)?;
 
         // Collect history BEFORE persisting the new user message
         // (the agent will append the user message itself, so we avoid duplicates)
@@ -187,13 +203,72 @@ impl Gateway {
 
     /// Get the full message history for the main session.
     pub async fn get_main_history(&self) -> Result<Vec<Message>> {
-        let session = self.session_manager.get_or_create_main()?;
+        let active_key = self.active_session_key();
+        let session = self.get_or_create_session(&active_key)?;
         self.session_manager.get_history(session.id)
     }
 
-    /// Get the main session metadata.
+    /// Get the active session metadata.
     pub async fn get_main_session(&self) -> Result<SessionMeta> {
-        self.session_manager.get_or_create_main()
+        let active_key = self.active_session_key();
+        self.get_or_create_session(&active_key)
+    }
+
+    /// List all user sessions.
+    pub fn list_sessions(&self) -> Result<Vec<SessionMeta>> {
+        self.db.list_sessions()
+    }
+
+    /// Create a new named session.
+    pub fn create_named_session(&self, name: &str) -> Result<SessionMeta> {
+        let model = self.config.read().unwrap().agent.model.clone();
+        self.db.create_session(name, &model)
+    }
+
+    /// Switch active session by key. Returns the session.
+    pub fn switch_session(&self, key: &str) -> Result<SessionMeta> {
+        let model = self.config.read().unwrap().agent.model.clone();
+        // Get or create the session
+        let session = match self.db.get_session_by_key(key)? {
+            Some(s) => s,
+            None => self.db.create_session(key, &model)?,
+        };
+        *self.active_session_key.write().unwrap() = key.to_string();
+        Ok(session)
+    }
+
+    /// Get the active session key.
+    pub fn active_session_key(&self) -> String {
+        self.active_session_key.read().unwrap().clone()
+    }
+
+    /// Delete a session by key.
+    pub fn delete_session(&self, key: &str) -> Result<()> {
+        if key == "main" {
+            return Err(anyhow::anyhow!("Cannot delete the main session"));
+        }
+        let session = self.db.get_session_by_key(key)?
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {key}"))?;
+        self.db.delete_session(session.id)?;
+        // If we deleted the active session, switch back to main
+        if *self.active_session_key.read().unwrap() == key {
+            *self.active_session_key.write().unwrap() = "main".to_string();
+        }
+        Ok(())
+    }
+
+    /// Rename a session.
+    pub fn rename_session(&self, old_key: &str, new_key: &str) -> Result<()> {
+        if old_key == "main" {
+            return Err(anyhow::anyhow!("Cannot rename the main session"));
+        }
+        let session = self.db.get_session_by_key(old_key)?
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {old_key}"))?;
+        self.db.rename_session(session.id, new_key)?;
+        if *self.active_session_key.read().unwrap() == old_key {
+            *self.active_session_key.write().unwrap() = new_key.to_string();
+        }
+        Ok(())
     }
 
     /// Get all subagent sessions for the main session.
