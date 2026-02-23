@@ -27,6 +27,7 @@ pub struct AnthropicMessage {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChatResponse {
+    #[allow(dead_code)]
     pub id: String,
     pub content: Vec<ContentBlock>,
     pub stop_reason: Option<String>,
@@ -67,7 +68,7 @@ enum SseEvent {
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta { index: usize, delta: SseDelta },
     #[serde(rename = "content_block_stop")]
-    ContentBlockStop { index: usize },
+    ContentBlockStop { #[allow(dead_code)] index: usize },
     #[serde(rename = "message_delta")]
     MessageDelta {
         delta: SseMessageDelta,
@@ -358,6 +359,7 @@ impl ChatResponse {
     }
 
     /// Extract all tool use blocks.
+    #[allow(dead_code)]
     pub fn tool_uses(&self) -> Vec<(&str, &str, &serde_json::Value)> {
         self.content
             .iter()

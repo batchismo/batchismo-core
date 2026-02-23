@@ -8,6 +8,7 @@ use bat_types::policy::PathPolicy;
 /// Which top-level screen is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
+    Onboarding,
     Chat,
     Settings,
     Logs,
@@ -97,6 +98,15 @@ pub struct App {
     // Audit log
     pub audit_entries: Vec<String>,
     pub logs_scroll: usize,
+
+    // Onboarding
+    pub onboarding_step: u8,          // 0=welcome, 1=apikey, 2=name, 3=access, 4=ready
+    pub onboarding_api_key: String,
+    pub onboarding_name: String,
+    pub onboarding_folders: Vec<(String, String, bool)>, // (path, access, recursive)
+    pub onboarding_error: String,
+    pub onboarding_validated: bool,
+    pub onboarding_editing: bool,     // true when typing in a field
 }
 
 impl App {
@@ -104,11 +114,13 @@ impl App {
         let path_policies = gateway.get_path_policies_sync()
             .unwrap_or_default();
 
+        let needs_onboarding = !gateway.is_onboarding_complete();
+
         Self {
             gateway,
             should_quit: false,
 
-            screen: Screen::Chat,
+            screen: if needs_onboarding { Screen::Onboarding } else { Screen::Chat },
             settings_tab: SettingsTab::AgentConfig,
             show_help: false,
 
@@ -130,6 +142,14 @@ impl App {
 
             audit_entries: Vec::new(),
             logs_scroll: 0,
+
+            onboarding_step: 0,
+            onboarding_api_key: String::new(),
+            onboarding_name: String::new(),
+            onboarding_folders: Vec::new(),
+            onboarding_error: String::new(),
+            onboarding_validated: false,
+            onboarding_editing: false,
         }
     }
 

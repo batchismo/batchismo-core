@@ -7,6 +7,8 @@ use tracing::warn;
 
 use bat_types::ipc::AgentToGateway;
 
+use bat_gateway::Gateway;
+
 use crate::app::{App, InputMode, Screen, SettingsTab};
 
 pub struct EventHandler {
@@ -78,6 +80,7 @@ async fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     }
 
     match app.screen {
+        Screen::Onboarding => handle_onboarding_key(app, key).await,
         Screen::Chat => handle_chat_key(app, key).await,
         Screen::Settings => handle_settings_key(app, key).await,
         Screen::Logs => handle_logs_key(app, key).await,
@@ -225,6 +228,146 @@ async fn handle_settings_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 // Enter editing mode to type a new path
                 app.edit_buffer.clear();
                 app.input_mode = InputMode::Editing;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_onboarding_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    // If editing a text field, capture keystrokes
+    if app.onboarding_editing {
+        match key.code {
+            KeyCode::Enter => {
+                app.onboarding_editing = false;
+                // On step 3 (access), Enter adds the typed path
+                if app.onboarding_step == 3 && !app.edit_buffer.is_empty() {
+                    app.onboarding_folders.push((
+                        app.edit_buffer.clone(),
+                        "read-write".to_string(),
+                        true,
+                    ));
+                    app.edit_buffer.clear();
+                }
+            }
+            KeyCode::Esc => {
+                app.onboarding_editing = false;
+                app.edit_buffer.clear();
+            }
+            KeyCode::Char(c) => app.edit_buffer.push(c),
+            KeyCode::Backspace => { app.edit_buffer.pop(); }
+            _ => {}
+        }
+        return Ok(());
+    }
+
+    match app.onboarding_step {
+        0 => {
+            // Welcome — Enter to proceed
+            if key.code == KeyCode::Enter {
+                app.onboarding_step = 1;
+                app.onboarding_editing = true;
+                app.edit_buffer = app.onboarding_api_key.clone();
+            }
+        }
+        1 => {
+            // API Key
+            match key.code {
+                KeyCode::Enter if !app.onboarding_validated => {
+                    // Start editing to enter/modify key
+                    app.onboarding_editing = true;
+                    app.edit_buffer = app.onboarding_api_key.clone();
+                }
+                KeyCode::Enter if app.onboarding_validated => {
+                    app.onboarding_step = 2;
+                    app.onboarding_editing = true;
+                    app.edit_buffer = app.onboarding_name.clone();
+                }
+                KeyCode::Char('v') if !app.onboarding_api_key.is_empty() => {
+                    // Validate
+                    app.onboarding_error.clear();
+                    match Gateway::validate_api_key(&app.onboarding_api_key).await {
+                        Ok(()) => app.onboarding_validated = true,
+                        Err(e) => app.onboarding_error = e.to_string(),
+                    }
+                }
+                KeyCode::Char('e') => {
+                    app.onboarding_editing = true;
+                    app.edit_buffer = app.onboarding_api_key.clone();
+                }
+                KeyCode::Esc => app.onboarding_step = 0,
+                _ => {}
+            }
+            // Save buffer back when done editing
+            if !app.onboarding_editing && !app.edit_buffer.is_empty() {
+                app.onboarding_api_key = app.edit_buffer.clone();
+                app.edit_buffer.clear();
+                app.onboarding_validated = false;
+            }
+        }
+        2 => {
+            // Name
+            match key.code {
+                KeyCode::Enter if !app.onboarding_name.is_empty() => {
+                    app.onboarding_step = 3;
+                }
+                KeyCode::Enter => {
+                    app.onboarding_editing = true;
+                    app.edit_buffer = app.onboarding_name.clone();
+                }
+                KeyCode::Char('e') => {
+                    app.onboarding_editing = true;
+                    app.edit_buffer = app.onboarding_name.clone();
+                }
+                KeyCode::Esc => {
+                    app.onboarding_step = 1;
+                }
+                _ => {}
+            }
+            if !app.onboarding_editing && !app.edit_buffer.is_empty() {
+                app.onboarding_name = app.edit_buffer.clone();
+                app.edit_buffer.clear();
+            }
+        }
+        3 => {
+            // Access — add folders
+            match key.code {
+                KeyCode::Char('a') => {
+                    app.onboarding_editing = true;
+                    app.edit_buffer.clear();
+                }
+                KeyCode::Char('d') => {
+                    // Delete last folder
+                    app.onboarding_folders.pop();
+                }
+                KeyCode::Enter if !app.onboarding_folders.is_empty() => {
+                    app.onboarding_step = 4;
+                }
+                KeyCode::Esc => app.onboarding_step = 2,
+                _ => {}
+            }
+        }
+        4 => {
+            // Ready — finish
+            match key.code {
+                KeyCode::Enter => {
+                    app.onboarding_error.clear();
+                    match app.gateway.complete_onboarding(
+                        app.onboarding_name.clone(),
+                        app.onboarding_api_key.clone(),
+                        app.onboarding_folders.clone(),
+                    ).await {
+                        Ok(()) => {
+                            app.screen = Screen::Chat;
+                            // Refresh policies
+                            app.path_policies = app.gateway.get_path_policies_sync().unwrap_or_default();
+                        }
+                        Err(e) => app.onboarding_error = e.to_string(),
+                    }
+                }
+                KeyCode::Esc => app.onboarding_step = 3,
+                _ => {}
             }
         }
         _ => {}

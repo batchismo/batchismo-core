@@ -1,6 +1,7 @@
 mod chat;
 mod help;
 mod logs;
+mod onboarding;
 mod settings;
 
 use ratatui::prelude::*;
@@ -10,6 +11,7 @@ use crate::app::{App, Screen};
 /// Main render function — dispatches to the active screen.
 pub fn render(f: &mut Frame, app: &App) {
     match app.screen {
+        Screen::Onboarding => onboarding::render(f, app),
         Screen::Chat => chat::render(f, app),
         Screen::Settings => settings::render(f, app),
         Screen::Logs => logs::render(f, app),

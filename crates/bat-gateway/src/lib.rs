@@ -440,7 +440,7 @@ async fn run_agent_turn(
     info!("Created pipe: {}", pipe_name);
 
     // 2. Spawn the agent child process
-    let mut child = ipc::spawn_agent(&pipe_name, &api_key)
+    let child = ipc::spawn_agent(&pipe_name, &api_key)
         .context("Failed to spawn bat-agent")?;
 
     let pid = child.id().unwrap_or(0);
