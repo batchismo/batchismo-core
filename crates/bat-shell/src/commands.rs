@@ -244,6 +244,20 @@ pub async fn complete_onboarding(
         .map_err(|e| e.to_string())
 }
 
+// ─── Voice / ElevenLabs ────────────────────────────────────────────────
+
+/// Fetch available ElevenLabs voices (requires ElevenLabs API key).
+#[tauri::command]
+pub async fn fetch_elevenlabs_voices(
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_gateway::ElevenLabsVoice>, String> {
+    state
+        .gateway
+        .fetch_elevenlabs_voices()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ─── Memory / Observations ─────────────────────────────────────────────
 
 /// List workspace memory files.

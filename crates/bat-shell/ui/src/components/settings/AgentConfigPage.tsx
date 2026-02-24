@@ -2,10 +2,16 @@ import { useState, useEffect } from 'react'
 import type { BatConfig } from '../../types'
 import { getConfig, updateConfig, getSystemPrompt } from '../../lib/tauri'
 
-const COMMON_MODELS = [
-  'claude-sonnet-4-6',
-  'claude-opus-4-6',
-  'claude-haiku-4-5-20251001',
+const ANTHROPIC_MODELS = [
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Fast & capable' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', desc: 'Most powerful' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Fastest & cheapest' },
+]
+
+const OPENAI_MODELS = [
+  { id: 'gpt-4o', label: 'GPT-4o', desc: 'Flagship multimodal' },
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', desc: 'Fast & affordable' },
+  { id: 'o3-mini', label: 'o3-mini', desc: 'Reasoning model' },
 ]
 
 export function AgentConfigPage() {
@@ -17,7 +23,9 @@ export function AgentConfigPage() {
   const [showPrompt, setShowPrompt] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
+
+  const hasAnthropicKey = !!(config?.api_keys?.anthropic)
+  const hasOpenAIKey = !!(config?.api_keys?.openai)
 
   useEffect(() => {
     getConfig()
@@ -107,64 +115,73 @@ export function AgentConfigPage() {
 
         {/* Model */}
         <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-300">Model</label>
+          <label className="block text-sm font-medium text-zinc-300">Default Model</label>
           <div className="flex gap-2">
             <input
               type="text"
               value={config.agent.model}
               onChange={e => updateAgent({ model: e.target.value })}
               className="flex-1 bg-zinc-900 border border-zinc-600 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-400 font-mono"
-              placeholder="anthropic/claude-opus-4-6"
+              placeholder="claude-sonnet-4-6"
             />
           </div>
-          <div className="flex flex-wrap gap-1.5 mt-1.5">
-            {COMMON_MODELS.map(m => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => updateAgent({ model: m })}
-                className={`text-xs px-2 py-1 rounded border transition-colors font-mono ${
-                  config.agent.model === m
-                    ? 'border-indigo-500 bg-indigo-900/40 text-indigo-300'
-                    : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                {m.replace('anthropic/', '')}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* API Key */}
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-zinc-300">API Key</label>
-          <div className="relative">
-            <input
-              type={showApiKey ? 'text' : 'password'}
-              value={config.agent.api_key ?? ''}
-              onChange={e => updateAgent({ api_key: e.target.value || null })}
-              className="w-full bg-zinc-900 border border-zinc-600 rounded-md px-3 py-2 pr-10 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-400 font-mono"
-              placeholder="sk-ant-…  (or set ANTHROPIC_API_KEY env var)"
-            />
-            <button
-              type="button"
-              onClick={() => setShowApiKey(v => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-            >
-              {showApiKey ? (
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-              )}
-            </button>
-          </div>
-          <p className="text-xs text-zinc-500">
-            Stored in config.toml. The ANTHROPIC_API_KEY environment variable takes priority if set.
+          {/* Anthropic models */}
+          {hasAnthropicKey && (
+            <div className="mt-2">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5 font-medium">Anthropic</p>
+              <div className="flex flex-wrap gap-1.5">
+                {ANTHROPIC_MODELS.map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => updateAgent({ model: m.id })}
+                    className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${
+                      config.agent.model === m.id
+                        ? 'border-indigo-500 bg-indigo-900/40 text-indigo-300'
+                        : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    <span className="font-mono">{m.label}</span>
+                    <span className="text-zinc-600 ml-1.5">· {m.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* OpenAI models */}
+          {hasOpenAIKey && (
+            <div className="mt-2">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5 font-medium">OpenAI</p>
+              <div className="flex flex-wrap gap-1.5">
+                {OPENAI_MODELS.map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => updateAgent({ model: m.id })}
+                    className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${
+                      config.agent.model === m.id
+                        ? 'border-emerald-500 bg-emerald-900/40 text-emerald-300'
+                        : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    <span className="font-mono">{m.label}</span>
+                    <span className="text-zinc-600 ml-1.5">· {m.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!hasAnthropicKey && !hasOpenAIKey && (
+            <p className="text-xs text-amber-400 mt-1.5">
+              ⚠️ No API keys configured. Add a key in <span className="font-medium">Settings → API Keys</span> to see available models.
+            </p>
+          )}
+
+          <p className="text-xs text-zinc-600 mt-1">
+            Or type any model ID directly. Models from providers without a configured key won't work.
           </p>
         </div>
 

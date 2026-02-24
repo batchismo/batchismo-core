@@ -15,7 +15,7 @@ const KEYS: KeyField[] = [
   {
     id: 'anthropic',
     label: 'Anthropic',
-    description: 'Required — powers the agent LLM (Claude)',
+    description: 'Unlocks: Claude chat models (Sonnet, Opus, Haiku)',
     placeholder: 'sk-ant-...',
     helpUrl: 'https://console.anthropic.com/settings/keys',
     helpLabel: 'console.anthropic.com',
@@ -23,7 +23,7 @@ const KEYS: KeyField[] = [
   {
     id: 'openai',
     label: 'OpenAI',
-    description: 'Optional — enables voice features (Whisper STT, OpenAI TTS)',
+    description: 'Unlocks: GPT chat models, voice responses (TTS), speech-to-text (Whisper)',
     placeholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
     helpLabel: 'platform.openai.com',
@@ -31,8 +31,8 @@ const KEYS: KeyField[] = [
   {
     id: 'elevenlabs',
     label: 'ElevenLabs',
-    description: 'Optional — enables ElevenLabs TTS voices (alternative to OpenAI TTS)',
-    placeholder: 'xi-...',
+    description: 'Unlocks: Premium TTS voices, custom & cloned voices',
+    placeholder: 'sk_...',
     helpUrl: 'https://elevenlabs.io/app/settings/api-keys',
     helpLabel: 'elevenlabs.io',
   },

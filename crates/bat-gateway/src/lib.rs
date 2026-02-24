@@ -46,6 +46,16 @@ pub struct ToolInfo {
     pub enabled: bool,
 }
 
+/// An ElevenLabs voice entry (returned to the UI for voice picker).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElevenLabsVoice {
+    pub voice_id: String,
+    pub name: String,
+    pub category: String,
+    pub preview_url: Option<String>,
+}
+
 /// The central gateway — owns the database, session state, and event bus.
 /// The Tauri shell holds an `Arc<Gateway>` in `AppState`.
 pub struct Gateway {
@@ -706,6 +716,44 @@ impl Gateway {
         );
 
         Ok(())
+    }
+
+    // ─── Voice / ElevenLabs ─────────────────────────────────────────────
+
+    /// Fetch available ElevenLabs voices using the configured API key.
+    pub async fn fetch_elevenlabs_voices(&self) -> Result<Vec<ElevenLabsVoice>> {
+        let api_key = self.config.read().unwrap().api_keys.elevenlabs_key()
+            .ok_or_else(|| anyhow::anyhow!("No ElevenLabs API key configured"))?;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get("https://api.elevenlabs.io/v1/voices")
+            .header("xi-api-key", &api_key)
+            .send()
+            .await
+            .context("Failed to reach ElevenLabs API")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("ElevenLabs API error ({status}): {body}");
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        let voices = body["voices"].as_array()
+            .map(|arr| {
+                arr.iter().filter_map(|v| {
+                    Some(ElevenLabsVoice {
+                        voice_id: v["voice_id"].as_str()?.to_string(),
+                        name: v["name"].as_str()?.to_string(),
+                        category: v["category"].as_str().unwrap_or("premade").to_string(),
+                        preview_url: v["preview_url"].as_str().map(|s| s.to_string()),
+                    })
+                }).collect()
+            })
+            .unwrap_or_default();
+
+        Ok(voices)
     }
 
     // ─── Audit / Observability ────────────────────────────────────────────

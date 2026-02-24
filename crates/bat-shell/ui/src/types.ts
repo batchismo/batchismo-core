@@ -232,6 +232,14 @@ export interface SubagentInfo {
   tokenOutput: number
 }
 
+// ElevenLabs voice (fetched from API)
+export interface ElevenLabsVoice {
+  voiceId: string
+  name: string
+  category: string
+  previewUrl: string | null
+}
+
 export type AppView = 'chat' | 'settings' | 'logs' | 'memory' | 'activity' | 'usage'
 
 // Onboarding

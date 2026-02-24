@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats, ElevenLabsVoice } from '../types'
 
 export const sendMessage = (content: string): Promise<void> =>
   invoke('send_message', { content })
@@ -95,3 +95,7 @@ export const validateApiKey = (key: string): Promise<boolean> =>
 
 export const completeOnboarding = (name: string, apiKey: string, openaiApiKey: string | null, folders: [string, string, boolean][]): Promise<void> =>
   invoke('complete_onboarding', { name, apiKey, openaiApiKey, folders })
+
+// Voice
+export const fetchElevenlabsVoices = (): Promise<ElevenLabsVoice[]> =>
+  invoke('fetch_elevenlabs_voices')
