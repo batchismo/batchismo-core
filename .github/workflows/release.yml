@@ -180,15 +180,15 @@ jobs:
         run: |
           mkdir -p stable
           # Windows
-          for f in artifacts/**/*-setup.exe; do [ -f "$f" ] && cp "$f" stable/Batchismo-windows-x64-setup.exe; done
-          for f in artifacts/**/*.msi; do [ -f "$f" ] && cp "$f" stable/Batchismo-windows-x64.msi; done
+          find artifacts -name '*-setup.exe' -type f | head -1 | xargs -I{} cp {} stable/Batchismo-windows-x64-setup.exe
+          find artifacts -name '*.msi' -type f | head -1 | xargs -I{} cp {} stable/Batchismo-windows-x64.msi
           # macOS ARM
-          for f in artifacts/**/*_aarch64.dmg; do [ -f "$f" ] && cp "$f" stable/Batchismo-macos-arm64.dmg; done
+          find artifacts -name '*_aarch64.dmg' -type f | head -1 | xargs -I{} cp {} stable/Batchismo-macos-arm64.dmg
           # macOS x64
-          for f in artifacts/**/*_x64.dmg; do [ -f "$f" ] && cp "$f" stable/Batchismo-macos-x64.dmg; done
+          find artifacts -name '*_x64.dmg' -type f | head -1 | xargs -I{} cp {} stable/Batchismo-macos-x64.dmg
           # Linux
-          for f in artifacts/**/*.AppImage; do [ -f "$f" ] && cp "$f" stable/Batchismo-linux-x64.AppImage; done
-          for f in artifacts/**/*.deb; do [ -f "$f" ] && cp "$f" stable/Batchismo-linux-x64.deb; done
+          find artifacts -name '*.AppImage' -type f | head -1 | xargs -I{} cp {} stable/Batchismo-linux-x64.AppImage
+          find artifacts -name '*.deb' -type f | head -1 | xargs -I{} cp {} stable/Batchismo-linux-x64.deb
           echo "Stable artifacts:"
           ls -la stable/
 
