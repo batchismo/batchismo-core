@@ -2,8 +2,8 @@
 //!
 //! Runs long polling in a background task, routes messages to/from the gateway.
 
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use anyhow::Result;
+use serde::Deserialize;
 use tracing::{info, warn, error, debug};
 use tokio::sync::mpsc;
 
@@ -77,15 +77,17 @@ struct TgChat {
 #[derive(Debug, Deserialize)]
 struct TgVoice {
     file_id: String,
-    duration: Option<i64>,
+    _duration: Option<i64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct TgFile {
     file_path: Option<String>,
 }
 
 /// The running Telegram adapter.
+#[allow(dead_code)]
 pub struct TelegramAdapter {
     config: TelegramConfig,
     client: reqwest::Client,

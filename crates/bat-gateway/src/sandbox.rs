@@ -5,7 +5,8 @@
 //! - **macOS:** Seatbelt sandbox profiles
 //! - **Linux:** namespaces + cgroups + seccomp-bpf
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+#[allow(unused_imports)]
 use tracing::{info, warn};
 
 /// Sandbox configuration applied to agent processes.
@@ -59,10 +60,10 @@ pub fn apply_sandbox(
 /// On macOS, this generates a seatbelt profile file.
 /// On Linux, this sets up namespace flags.
 /// On Windows, sandbox is applied post-spawn via Job Objects.
-pub fn pre_spawn_setup(config: &SandboxConfig) -> Result<PreSpawnConfig> {
+pub fn pre_spawn_setup(_config: &SandboxConfig) -> Result<PreSpawnConfig> {
     #[cfg(target_os = "macos")]
     {
-        let profile = generate_seatbelt_profile(config)?;
+        let profile = generate_seatbelt_profile(_config)?;
         Ok(PreSpawnConfig { seatbelt_profile: Some(profile), ..Default::default() })
     }
 
