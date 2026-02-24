@@ -6,6 +6,7 @@ import { AgentConfigPage } from './AgentConfigPage'
 import { AboutPage } from './AboutPage'
 import { ChannelsPage } from './ChannelsPage'
 import { VoicePage } from './VoicePage'
+import { ApiKeysPage } from './ApiKeysPage'
 
 interface NavItem {
   id: SettingsPage
@@ -14,6 +15,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  {
+    id: 'api-keys',
+    label: 'API Keys',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+      </svg>
+    ),
+  },
   {
     id: 'path-policies',
     label: 'Path Policies',
@@ -72,7 +82,7 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 export function SettingsPanel() {
-  const [activePage, setActivePage] = useState<SettingsPage>('agent-config')
+  const [activePage, setActivePage] = useState<SettingsPage>('api-keys')
 
   return (
     <div className="flex h-full">
@@ -102,6 +112,7 @@ export function SettingsPanel() {
 
       {/* Page content */}
       <div className="flex-1 overflow-y-auto p-6">
+        {activePage === 'api-keys' && <ApiKeysPage />}
         {activePage === 'path-policies' && <PathPoliciesPage />}
         {activePage === 'tools' && <ToolsPage />}
         {activePage === 'agent-config' && <AgentConfigPage />}

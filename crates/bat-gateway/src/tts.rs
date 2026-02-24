@@ -16,7 +16,7 @@ pub struct SpeechAudio {
 /// Synthesize speech from text using the configured provider.
 pub async fn synthesize(text: &str, config: &VoiceConfig, api_key: &str) -> Result<SpeechAudio> {
     match config.tts_provider.as_str() {
-        "elevenlabs" => synthesize_elevenlabs(text, config).await,
+        "elevenlabs" => synthesize_elevenlabs(text, config, api_key).await,
         _ => synthesize_openai(text, config, api_key).await,
     }
 }
@@ -57,10 +57,8 @@ async fn synthesize_openai(text: &str, config: &VoiceConfig, api_key: &str) -> R
     })
 }
 
-/// ElevenLabs TTS API.
-async fn synthesize_elevenlabs(text: &str, config: &VoiceConfig) -> Result<SpeechAudio> {
-    let api_key = config.elevenlabs_api_key.as_deref()
-        .ok_or_else(|| anyhow::anyhow!("ElevenLabs API key not configured"))?;
+/// ElevenLabs TTS API. The api_key parameter is the ElevenLabs key.
+async fn synthesize_elevenlabs(text: &str, config: &VoiceConfig, api_key: &str) -> Result<SpeechAudio> {
     let voice_id = config.elevenlabs_voice_id.as_deref()
         .ok_or_else(|| anyhow::anyhow!("ElevenLabs voice ID not configured"))?;
 

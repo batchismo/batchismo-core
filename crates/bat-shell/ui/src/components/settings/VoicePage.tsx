@@ -11,10 +11,12 @@ export function VoicePage() {
   const [ttsProvider, setTtsProvider] = useState('openai')
   const [openaiVoice, setOpenaiVoice] = useState('nova')
   const [openaiTtsModel, setOpenaiTtsModel] = useState('gpt-4o-mini-tts')
-  const [elevenlabsKey, setElevenlabsKey] = useState('')
   const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState('')
   const [sttEnabled, setSttEnabled] = useState(false)
-  const [openaiApiKey, setOpenaiApiKey] = useState('')
+
+  // Derived: do we have the right keys?
+  const hasOpenAIKey = !!(config?.api_keys?.openai)
+  const hasElevenlabsKey = !!(config?.api_keys?.elevenlabs)
 
   useEffect(() => {
     getConfig().then(cfg => {
@@ -25,10 +27,8 @@ export function VoicePage() {
         setTtsProvider(v.tts_provider || 'openai')
         setOpenaiVoice(v.openai_voice || 'nova')
         setOpenaiTtsModel(v.openai_tts_model || 'gpt-4o-mini-tts')
-        setElevenlabsKey(v.elevenlabs_api_key || '')
         setElevenlabsVoiceId(v.elevenlabs_voice_id || '')
         setSttEnabled(v.stt_enabled)
-        setOpenaiApiKey(v.openai_api_key || '')
       }
     })
   }, [])
@@ -42,10 +42,8 @@ export function VoicePage() {
         tts_provider: ttsProvider,
         openai_voice: openaiVoice,
         openai_tts_model: openaiTtsModel,
-        elevenlabs_api_key: elevenlabsKey || null,
         elevenlabs_voice_id: elevenlabsVoiceId || null,
         stt_enabled: sttEnabled,
-        openai_api_key: openaiApiKey || null,
       },
     }
     await updateConfig(updated)
@@ -56,8 +54,20 @@ export function VoicePage() {
 
   if (!config) return <div className="p-4 text-zinc-500">Loading...</div>
 
+  const ttsKeyMissing = ttsProvider === 'openai' ? !hasOpenAIKey : !hasElevenlabsKey
+
   return (
     <div className="p-4 space-y-6">
+      {/* Key status banner */}
+      {!hasOpenAIKey && (
+        <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg px-4 py-3">
+          <p className="text-xs text-amber-300">
+            ⚠️ No OpenAI API key configured. Voice features (TTS & STT) require an OpenAI key.
+            Add one in <span className="font-medium">Settings → API Keys</span>.
+          </p>
+        </div>
+      )}
+
       {/* Text-to-Speech */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -79,6 +89,11 @@ export function VoicePage() {
 
         {ttsEnabled && (
           <div className="space-y-3 pl-0.5">
+            {ttsKeyMissing && (
+              <p className="text-xs text-amber-400">
+                ⚠️ {ttsProvider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI'} API key not set — TTS won't work until you add it in API Keys.
+              </p>
+            )}
             <div>
               <label className="text-xs text-zinc-400 font-medium">Provider</label>
               <select
@@ -124,30 +139,18 @@ export function VoicePage() {
             )}
 
             {ttsProvider === 'elevenlabs' && (
-              <>
-                <div>
-                  <label className="text-xs text-zinc-400 font-medium">ElevenLabs API Key</label>
-                  <input
-                    type="password"
-                    value={elevenlabsKey}
-                    onChange={e => setElevenlabsKey(e.target.value)}
-                    placeholder="xi-..."
-                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-400 font-medium">Voice ID</label>
-                  <input
-                    value={elevenlabsVoiceId}
-                    onChange={e => setElevenlabsVoiceId(e.target.value)}
-                    placeholder="pFZP5JQG7iQjIQuC4Bku"
-                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500"
-                  />
-                  <p className="text-[10px] text-zinc-600 mt-1">
-                    Find voice IDs at <a href="https://elevenlabs.io/voice-library" className="text-indigo-400 hover:underline" target="_blank">ElevenLabs Voice Library</a>
-                  </p>
-                </div>
-              </>
+              <div>
+                <label className="text-xs text-zinc-400 font-medium">Voice ID</label>
+                <input
+                  value={elevenlabsVoiceId}
+                  onChange={e => setElevenlabsVoiceId(e.target.value)}
+                  placeholder="pFZP5JQG7iQjIQuC4Bku"
+                  className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500"
+                />
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  Find voice IDs at <a href="https://elevenlabs.io/voice-library" className="text-indigo-400 hover:underline" target="_blank">ElevenLabs Voice Library</a>
+                </p>
+              </div>
             )}
           </div>
         )}
@@ -158,7 +161,7 @@ export function VoicePage() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-zinc-200">Speech-to-Text</h3>
-            <p className="text-xs text-zinc-500 mt-0.5">Transcribe voice messages via Whisper</p>
+            <p className="text-xs text-zinc-500 mt-0.5">Transcribe incoming voice messages via Whisper (requires OpenAI key)</p>
           </div>
           <button
             onClick={() => setSttEnabled(!sttEnabled)}
@@ -171,21 +174,11 @@ export function VoicePage() {
             }`} />
           </button>
         </div>
-      </div>
-
-      {/* Shared OpenAI API Key */}
-      <div>
-        <label className="text-xs text-zinc-400 font-medium">OpenAI API Key (for TTS/STT)</label>
-        <input
-          type="password"
-          value={openaiApiKey}
-          onChange={e => setOpenaiApiKey(e.target.value)}
-          placeholder="sk-... (falls back to Anthropic key if empty)"
-          className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500"
-        />
-        <p className="text-[10px] text-zinc-600 mt-1">
-          Required for OpenAI TTS and Whisper STT. If empty, falls back to the agent API key (Anthropic keys won't work for OpenAI services).
-        </p>
+        {sttEnabled && !hasOpenAIKey && (
+          <p className="text-xs text-amber-400 pl-0.5">
+            ⚠️ OpenAI API key not set — STT won't work until you add it in API Keys.
+          </p>
+        )}
       </div>
 
       {/* Save */}

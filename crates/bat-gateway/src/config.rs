@@ -49,8 +49,9 @@ pub fn load_config() -> Result<BatConfig> {
 
     let contents = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read config from {}", path.display()))?;
-    let config: BatConfig = toml::from_str(&contents)
+    let mut config: BatConfig = toml::from_str(&contents)
         .with_context(|| format!("Failed to parse config at {}", path.display()))?;
+    config.migrate_legacy_keys();
     Ok(config)
 }
 

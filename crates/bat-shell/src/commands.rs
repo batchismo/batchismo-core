@@ -233,12 +233,13 @@ pub async fn validate_api_key(key: String) -> Result<bool, String> {
 pub async fn complete_onboarding(
     name: String,
     api_key: String,
+    openai_api_key: Option<String>,
     folders: Vec<(String, String, bool)>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
         .gateway
-        .complete_onboarding(name, api_key, folders)
+        .complete_onboarding(name, api_key, openai_api_key, folders)
         .await
         .map_err(|e| e.to_string())
 }

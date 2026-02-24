@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { completeOnboarding } from '../../lib/tauri'
 import { WelcomeStep } from './WelcomeStep'
 import { ApiKeyStep } from './ApiKeyStep'
+import { OpenAIKeyStep } from './OpenAIKeyStep'
 import { NameStep } from './NameStep'
 import { AccessStep } from './AccessStep'
 import { ReadyStep } from './ReadyStep'
 
-const STEPS = ['welcome', 'apikey', 'name', 'access', 'ready'] as const
+const STEPS = ['welcome', 'apikey', 'openaikey', 'name', 'access', 'ready'] as const
 type Step = typeof STEPS[number]
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 export function OnboardingWizard({ onComplete }: Props) {
   const [step, setStep] = useState<Step>('welcome')
   const [apiKey, setApiKey] = useState('')
+  const [openaiApiKey, setOpenaiApiKey] = useState('')
   const [agentName, setAgentName] = useState('')
   const [folders, setFolders] = useState<[string, string, boolean][]>([])
   const [saving, setSaving] = useState(false)
@@ -37,7 +39,12 @@ export function OnboardingWizard({ onComplete }: Props) {
     setSaving(true)
     setError('')
     try {
-      await completeOnboarding(agentName, apiKey, folders)
+      await completeOnboarding(
+        agentName,
+        apiKey,
+        openaiApiKey.trim() || null,
+        folders,
+      )
       onComplete()
     } catch (e) {
       setError(String(e))
@@ -67,6 +74,14 @@ export function OnboardingWizard({ onComplete }: Props) {
             <ApiKeyStep
               apiKey={apiKey}
               setApiKey={setApiKey}
+              onNext={next}
+              onBack={back}
+            />
+          )}
+          {step === 'openaikey' && (
+            <OpenAIKeyStep
+              apiKey={openaiApiKey}
+              setApiKey={setOpenaiApiKey}
               onNext={next}
               onBack={back}
             />

@@ -83,13 +83,12 @@ impl Gateway {
         // Telegram
         if let Some(ref tg_cfg) = cfg.channels.telegram {
             if tg_cfg.enabled && !tg_cfg.bot_token.is_empty() {
-                let stt_api_key = cfg.voice.openai_api_key.clone()
-                    .or_else(|| cfg.agent.api_key.clone())
-                    .unwrap_or_default();
+                let stt_available = cfg.voice.stt_available(&cfg.api_keys);
+                let stt_api_key = cfg.api_keys.openai_key().unwrap_or_default();
                 let tg_config = channels::telegram::TelegramConfig {
                     bot_token: tg_cfg.bot_token.clone(),
                     allow_from: tg_cfg.allow_from.clone(),
-                    stt_enabled: cfg.voice.stt_enabled,
+                    stt_enabled: stt_available,
                     stt_api_key,
                 };
                 let (mut inbound_rx, outbound_tx) = channels::telegram::TelegramAdapter::start(tg_config);
@@ -130,17 +129,18 @@ impl Gateway {
                                             pending_text.clone()
                                         };
                                         if !text.is_empty() {
-                                            // Try TTS if enabled
-                                            let (tts_enabled, voice_cfg, tts_api_key) = {
+                                            // Try TTS if enabled and API key available
+                                            let (tts_available, voice_cfg, tts_api_key) = {
                                                 let cfg = config_for_events.read().unwrap();
-                                                let enabled = cfg.voice.tts_enabled;
+                                                let available = cfg.voice.tts_available(&cfg.api_keys);
                                                 let vc = cfg.voice.clone();
-                                                let key = cfg.voice.openai_api_key.clone()
-                                                    .or_else(|| cfg.agent.api_key.clone())
-                                                    .unwrap_or_default();
-                                                (enabled, vc, key)
+                                                let key = match cfg.voice.tts_provider.as_str() {
+                                                    "elevenlabs" => cfg.api_keys.elevenlabs_key().unwrap_or_default(),
+                                                    _ => cfg.api_keys.openai_key().unwrap_or_default(),
+                                                };
+                                                (available, vc, key)
                                             };
-                                            let voice_data = if tts_enabled {
+                                            let voice_data = if tts_available {
                                                 match tts::synthesize(&text, &voice_cfg, &tts_api_key).await {
                                                     Ok(audio) => Some(audio.data),
                                                     Err(e) => {
@@ -218,16 +218,16 @@ impl Gateway {
                         let user_msg = bat_types::message::Message::user(session.id, &msg.text);
                         let _ = session_manager.append_message(&user_msg);
 
-                        let (cfg_model, disabled_tools, cfg_api_key) = {
+                        let (cfg_model, disabled_tools, api_key) = {
                             let cfg = config.read().unwrap();
-                            (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), cfg.agent.api_key.clone())
+                            let key = cfg.api_keys.anthropic_key().unwrap_or_default();
+                            (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), key)
                         };
                         let system_prompt = {
                             let cfg = config.read().unwrap();
                             let policies = db.get_path_policies().unwrap_or_default();
                             crate::system_prompt::build_system_prompt(&cfg, &policies).unwrap_or_default()
                         };
-                        let api_key = std::env::var("ANTHROPIC_API_KEY").ok().or(cfg_api_key).unwrap_or_default();
                         let path_policies = db.get_path_policies().unwrap_or_default();
 
                         let eb = event_bus.clone();
@@ -305,30 +305,27 @@ impl Gateway {
             .context("Failed to get path policies")?;
 
         // Read config once under lock
-        let (model, disabled_tools, config_api_key) = {
+        let (model, disabled_tools, api_key) = {
             let cfg = self.config.read().unwrap();
+            let key = cfg.api_keys.anthropic_key();
             (
                 cfg.agent.model.clone(),
                 cfg.agent.disabled_tools.clone(),
-                cfg.agent.api_key.clone(),
+                key,
             )
         };
+
+        let api_key = api_key.ok_or_else(|| {
+            anyhow::anyhow!(
+                "No Anthropic API key found. Add it in Settings → API Keys or set ANTHROPIC_API_KEY env var."
+            )
+        })?;
 
         let system_prompt = {
             let cfg = self.config.read().unwrap();
             system_prompt::build_system_prompt(&cfg, &path_policies)
                 .context("Failed to build system prompt")?
         };
-
-        // API key: env var takes priority, then fall back to config value
-        let api_key = std::env::var("ANTHROPIC_API_KEY")
-            .ok()
-            .or(config_api_key)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No API key found. Set ANTHROPIC_API_KEY env var or add it in Settings."
-                )
-            })?;
 
         let event_bus = self.event_bus.clone();
         let session_manager = Arc::clone(&self.session_manager);
@@ -662,13 +659,23 @@ impl Gateway {
         &self,
         name: String,
         api_key: String,
+        openai_api_key: Option<String>,
         folders: Vec<(String, String, bool)>, // (path, access, recursive)
     ) -> Result<()> {
         // Update config
         {
             let mut cfg = self.config.write().unwrap();
             cfg.agent.name = name.clone();
-            cfg.agent.api_key = Some(api_key);
+            cfg.agent.api_key = Some(api_key.clone()); // legacy compat
+            cfg.api_keys.anthropic = Some(api_key);
+            if let Some(ref oai_key) = openai_api_key {
+                if !oai_key.is_empty() {
+                    cfg.api_keys.openai = Some(oai_key.clone());
+                    // Auto-enable voice features when OpenAI key is provided
+                    cfg.voice.tts_enabled = true;
+                    cfg.voice.stt_enabled = true;
+                }
+            }
             cfg.agent.onboarding_complete = true;
             config::save_config(&cfg)?;
         }
@@ -787,10 +794,8 @@ impl Gateway {
     pub async fn trigger_consolidation(&self) -> Result<consolidation::ConsolidationResult> {
         let (api_key, model) = {
             let cfg = self.config.read().unwrap();
-            let key = std::env::var("ANTHROPIC_API_KEY")
-                .ok()
-                .or_else(|| cfg.agent.api_key.clone())
-                .ok_or_else(|| anyhow::anyhow!("No API key configured"))?;
+            let key = cfg.api_keys.anthropic_key()
+                .ok_or_else(|| anyhow::anyhow!("No Anthropic API key configured"))?;
             // Use a smaller model for consolidation to save costs
             let model = "claude-haiku-4-5-20241022".to_string();
             (key, model)
@@ -853,11 +858,11 @@ fn handle_subagent_action(
     match action {
         ProcessAction::SpawnSubagent { task, label } => {
             let label = label.unwrap_or_else(|| task.chars().take(40).collect::<String>());
-            let (model, api_key_cfg, disabled_tools_base) = {
+            let (model, api_key_resolved, disabled_tools_base) = {
                 let cfg = config.read().unwrap();
                 (
                     cfg.agent.model.clone(),
-                    cfg.agent.api_key.clone(),
+                    cfg.api_keys.anthropic_key(),
                     cfg.agent.disabled_tools.clone(),
                 )
             };
@@ -876,7 +881,7 @@ fn handle_subagent_action(
                          - You cannot spawn subagents or modify memory files.\n"
                     );
                     let path_policies = db.get_path_policies().unwrap_or_default();
-                    let api_key = std::env::var("ANTHROPIC_API_KEY").ok().or(api_key_cfg).unwrap_or_default();
+                    let api_key = api_key_resolved.unwrap_or_default();
                     let mut disabled_tools = disabled_tools_base;
                     disabled_tools.push("session_spawn".to_string());
 

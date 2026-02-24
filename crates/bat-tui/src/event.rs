@@ -463,6 +463,7 @@ async fn handle_onboarding_key(app: &mut App, key: KeyEvent) -> Result<()> {
                     match app.gateway.complete_onboarding(
                         app.onboarding_name.clone(),
                         app.onboarding_api_key.clone(),
+                        None, // OpenAI key can be added later in Settings
                         app.onboarding_folders.clone(),
                     ).await {
                         Ok(()) => {

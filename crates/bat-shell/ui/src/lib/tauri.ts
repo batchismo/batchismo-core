@@ -93,5 +93,5 @@ export const isOnboardingComplete = (): Promise<boolean> =>
 export const validateApiKey = (key: string): Promise<boolean> =>
   invoke('validate_api_key', { key })
 
-export const completeOnboarding = (name: string, apiKey: string, folders: [string, string, boolean][]): Promise<void> =>
-  invoke('complete_onboarding', { name, apiKey, folders })
+export const completeOnboarding = (name: string, apiKey: string, openaiApiKey: string | null, folders: [string, string, boolean][]): Promise<void> =>
+  invoke('complete_onboarding', { name, apiKey, openaiApiKey, folders })
