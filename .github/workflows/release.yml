@@ -156,6 +156,24 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f
 
+      # Create version-less copies for stable download URLs
+      # e.g. /releases/latest/download/Batchismo-windows-x64-setup.exe
+      - name: Create stable-name copies
+        run: |
+          mkdir -p stable
+          # Windows
+          for f in artifacts/**/*-setup.exe; do [ -f "$f" ] && cp "$f" stable/Batchismo-windows-x64-setup.exe; done
+          for f in artifacts/**/*.msi; do [ -f "$f" ] && cp "$f" stable/Batchismo-windows-x64.msi; done
+          # macOS ARM
+          for f in artifacts/**/*_aarch64.dmg; do [ -f "$f" ] && cp "$f" stable/Batchismo-macos-arm64.dmg; done
+          # macOS x64
+          for f in artifacts/**/*_x64.dmg; do [ -f "$f" ] && cp "$f" stable/Batchismo-macos-x64.dmg; done
+          # Linux
+          for f in artifacts/**/*.AppImage; do [ -f "$f" ] && cp "$f" stable/Batchismo-linux-x64.AppImage; done
+          for f in artifacts/**/*.deb; do [ -f "$f" ] && cp "$f" stable/Batchismo-linux-x64.deb; done
+          echo "Stable artifacts:"
+          ls -la stable/
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -168,3 +186,4 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.deb
             artifacts/**/*.AppImage
+            stable/*
