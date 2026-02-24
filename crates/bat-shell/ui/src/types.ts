@@ -99,6 +99,17 @@ export interface ChannelsConfig {
   telegram?: TelegramChannelConfig
 }
 
+export interface VoiceConfig {
+  tts_enabled: boolean
+  tts_provider: string
+  openai_voice: string
+  openai_tts_model: string
+  elevenlabs_api_key: string | null
+  elevenlabs_voice_id: string | null
+  stt_enabled: boolean
+  openai_api_key: string | null
+}
+
 export interface BatConfig {
   agent: AgentConfig
   gateway: { port: number; log_level: string }
@@ -106,6 +117,7 @@ export interface BatConfig {
   sandbox: { memory_limit_mb: number; cpu_shares: number; max_concurrent_subagents: number }
   paths: PathPolicy[]
   channels?: ChannelsConfig
+  voice: VoiceConfig
 }
 
 // Audit log types
@@ -223,4 +235,4 @@ export interface FolderAccess {
   access: string
   recursive: boolean
 }
-export type SettingsPage = 'path-policies' | 'tools' | 'agent-config' | 'channels' | 'about'
+export type SettingsPage = 'path-policies' | 'tools' | 'agent-config' | 'channels' | 'voice' | 'about'

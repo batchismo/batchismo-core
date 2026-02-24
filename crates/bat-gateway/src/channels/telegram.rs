@@ -13,6 +13,10 @@ pub struct TelegramConfig {
     pub bot_token: String,
     /// User IDs allowed to interact with the bot.
     pub allow_from: Vec<i64>,
+    /// Whether STT is enabled (transcribe voice messages).
+    pub stt_enabled: bool,
+    /// API key for Whisper (OpenAI).
+    pub stt_api_key: String,
 }
 
 /// Inbound message from Telegram.
@@ -100,6 +104,8 @@ impl TelegramAdapter {
         let client = reqwest::Client::new();
         let bot_token = config.bot_token.clone();
         let allow_from = config.allow_from.clone();
+        let stt_enabled = config.stt_enabled;
+        let stt_api_key = config.stt_api_key.clone();
 
         // Long polling task
         let poll_client = client.clone();
@@ -125,7 +131,37 @@ impl TelegramAdapter {
                                 }
 
                                 let text = msg.text.unwrap_or_default();
-                                if text.is_empty() && msg.voice.is_none() {
+
+                                // Handle voice messages
+                                let voice_text = if let Some(ref voice) = msg.voice {
+                                    if stt_enabled && !stt_api_key.is_empty() {
+                                        match crate::stt::download_telegram_voice(&poll_token, &voice.file_id).await {
+                                            Ok(audio_data) => {
+                                                match crate::stt::transcribe(&audio_data, &stt_api_key).await {
+                                                    Ok(transcription) => {
+                                                        info!("Voice transcribed: \"{}\"", &transcription[..transcription.len().min(50)]);
+                                                        Some(transcription)
+                                                    }
+                                                    Err(e) => {
+                                                        warn!("Voice transcription failed: {e}");
+                                                        None
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!("Voice download failed: {e}");
+                                                None
+                                            }
+                                        }
+                                    } else {
+                                        debug!("Voice message received but STT disabled");
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+
+                                if text.is_empty() && voice_text.is_none() {
                                     continue; // Skip non-text, non-voice messages
                                 }
 
@@ -134,7 +170,7 @@ impl TelegramAdapter {
                                     user_id,
                                     text,
                                     message_id: msg.message_id,
-                                    voice_text: None, // Voice transcription handled elsewhere
+                                    voice_text,
                                 };
                                 if inbound_tx.send(inbound).is_err() {
                                     error!("Telegram inbound channel closed");

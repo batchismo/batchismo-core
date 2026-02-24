@@ -5,6 +5,7 @@ import { ToolsPage } from './ToolsPage'
 import { AgentConfigPage } from './AgentConfigPage'
 import { AboutPage } from './AboutPage'
 import { ChannelsPage } from './ChannelsPage'
+import { VoicePage } from './VoicePage'
 
 interface NavItem {
   id: SettingsPage
@@ -47,6 +48,15 @@ const NAV_ITEMS: NavItem[] = [
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
+      </svg>
+    ),
+  },
+  {
+    id: 'voice',
+    label: 'Voice',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
       </svg>
     ),
   },
@@ -96,6 +106,7 @@ export function SettingsPanel() {
         {activePage === 'tools' && <ToolsPage />}
         {activePage === 'agent-config' && <AgentConfigPage />}
         {activePage === 'channels' && <ChannelsPage />}
+        {activePage === 'voice' && <VoicePage />}
         {activePage === 'about' && <AboutPage />}
       </div>
     </div>

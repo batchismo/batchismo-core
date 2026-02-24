@@ -11,6 +11,8 @@ pub struct BatConfig {
     pub paths: Vec<PathPolicy>,
     #[serde(default)]
     pub channels: ChannelsConfig,
+    #[serde(default)]
+    pub voice: VoiceConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +57,39 @@ pub struct ChannelsConfig {
     pub telegram: Option<TelegramChannelConfig>,
 }
 
+/// Voice I/O configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VoiceConfig {
+    /// Enable voice responses (TTS).
+    #[serde(default)]
+    pub tts_enabled: bool,
+    /// TTS provider: "openai" or "elevenlabs".
+    #[serde(default = "default_tts_provider")]
+    pub tts_provider: String,
+    /// OpenAI TTS voice name (e.g., "nova", "alloy", "shimmer").
+    #[serde(default = "default_openai_voice")]
+    pub openai_voice: String,
+    /// OpenAI TTS model (e.g., "gpt-4o-mini-tts", "tts-1", "tts-1-hd").
+    #[serde(default = "default_openai_tts_model")]
+    pub openai_tts_model: String,
+    /// ElevenLabs API key (if using ElevenLabs).
+    #[serde(default)]
+    pub elevenlabs_api_key: Option<String>,
+    /// ElevenLabs voice ID.
+    #[serde(default)]
+    pub elevenlabs_voice_id: Option<String>,
+    /// Enable voice input transcription (STT via Whisper).
+    #[serde(default)]
+    pub stt_enabled: bool,
+    /// OpenAI API key for Whisper (falls back to agent API key if not set).
+    #[serde(default)]
+    pub openai_api_key: Option<String>,
+}
+
+fn default_tts_provider() -> String { "openai".to_string() }
+fn default_openai_voice() -> String { "nova".to_string() }
+fn default_openai_tts_model() -> String { "gpt-4o-mini-tts".to_string() }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramChannelConfig {
     pub enabled: bool,
@@ -91,6 +126,7 @@ impl Default for BatConfig {
             },
             paths: vec![],
             channels: ChannelsConfig::default(),
+            voice: VoiceConfig::default(),
         }
     }
 }

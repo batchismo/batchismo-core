@@ -8,7 +8,9 @@ pub mod memory;
 pub mod process_manager;
 pub mod sandbox;
 pub mod session;
+pub mod stt;
 pub mod system_prompt;
+pub mod tts;
 
 pub use events::EventBus;
 
@@ -81,9 +83,14 @@ impl Gateway {
         // Telegram
         if let Some(ref tg_cfg) = cfg.channels.telegram {
             if tg_cfg.enabled && !tg_cfg.bot_token.is_empty() {
+                let stt_api_key = cfg.voice.openai_api_key.clone()
+                    .or_else(|| cfg.agent.api_key.clone())
+                    .unwrap_or_default();
                 let tg_config = channels::telegram::TelegramConfig {
                     bot_token: tg_cfg.bot_token.clone(),
                     allow_from: tg_cfg.allow_from.clone(),
+                    stt_enabled: cfg.voice.stt_enabled,
+                    stt_api_key,
                 };
                 let (mut inbound_rx, outbound_tx) = channels::telegram::TelegramAdapter::start(tg_config);
 
@@ -106,6 +113,7 @@ impl Gateway {
                     let outbound_for_events = outbound.clone();
 
                     // Event forwarding task — send agent responses to Telegram
+                    let config_for_events = Arc::clone(&config);
                     tokio::spawn(async move {
                         let mut pending_text = String::new();
                         loop {
@@ -122,12 +130,33 @@ impl Gateway {
                                             pending_text.clone()
                                         };
                                         if !text.is_empty() {
+                                            // Try TTS if enabled
+                                            let (tts_enabled, voice_cfg, tts_api_key) = {
+                                                let cfg = config_for_events.read().unwrap();
+                                                let enabled = cfg.voice.tts_enabled;
+                                                let vc = cfg.voice.clone();
+                                                let key = cfg.voice.openai_api_key.clone()
+                                                    .or_else(|| cfg.agent.api_key.clone())
+                                                    .unwrap_or_default();
+                                                (enabled, vc, key)
+                                            };
+                                            let voice_data = if tts_enabled {
+                                                match tts::synthesize(&text, &voice_cfg, &tts_api_key).await {
+                                                    Ok(audio) => Some(audio.data),
+                                                    Err(e) => {
+                                                        warn!("TTS failed: {e}");
+                                                        None
+                                                    }
+                                                }
+                                            } else {
+                                                None
+                                            };
                                             let _ = outbound_for_events.send(
                                                 channels::telegram::OutboundMessage {
                                                     chat_id,
                                                     text,
                                                     reply_to: None,
-                                                    voice_data: None,
+                                                    voice_data,
                                                 },
                                             );
                                         }
@@ -155,8 +184,21 @@ impl Gateway {
                     });
 
                     // Inbound message routing
-                    while let Some(msg) = inbound_rx.recv().await {
+                    while let Some(mut msg) = inbound_rx.recv().await {
                         *active_chat_id.lock().unwrap() = msg.chat_id;
+
+                        // Transcribe voice messages if STT is enabled
+                        if let Some(ref voice_text) = msg.voice_text {
+                            // Voice was already transcribed by the adapter
+                            if msg.text.is_empty() {
+                                msg.text = voice_text.clone();
+                            }
+                        }
+
+                        if msg.text.is_empty() {
+                            continue; // Skip empty messages
+                        }
+
                         info!("Telegram inbound from user {}: {}", msg.user_id, &msg.text[..msg.text.len().min(50)]);
 
                         // Get the active session and route the message
