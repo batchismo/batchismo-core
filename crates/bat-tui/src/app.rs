@@ -5,6 +5,8 @@ use bat_types::ipc::AgentToGateway;
 use bat_types::memory::{MemoryFileInfo, ObservationSummary};
 use bat_types::message::Message;
 use bat_types::policy::PathPolicy;
+use bat_types::session::SessionMeta;
+use bat_types::usage::UsageStats;
 
 /// Which top-level screen is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +17,7 @@ pub enum Screen {
     Logs,
     Memory,
     Activity,
+    Usage,
 }
 
 /// Settings sub-pages.
@@ -117,6 +120,16 @@ pub struct App {
     pub activity_cursor: usize,
     pub activity_expanded: bool,
 
+    // Session switcher
+    pub show_session_switcher: bool,
+    pub session_list: Vec<SessionMeta>,
+    pub session_cursor: usize,
+    pub session_new_name: String,
+    pub session_creating: bool,
+
+    // Usage
+    pub usage_stats: Option<UsageStats>,
+
     // Onboarding
     pub onboarding_step: u8,          // 0=welcome, 1=apikey, 2=name, 3=access, 4=ready
     pub onboarding_api_key: String,
@@ -173,6 +186,14 @@ impl App {
             subagents: Vec::new(),
             activity_cursor: 0,
             activity_expanded: false,
+
+            show_session_switcher: false,
+            session_list: Vec::new(),
+            session_cursor: 0,
+            session_new_name: String::new(),
+            session_creating: false,
+
+            usage_stats: None,
 
             onboarding_step: 0,
             onboarding_api_key: String::new(),
@@ -298,6 +319,23 @@ impl App {
             if self.activity_cursor >= self.subagents.len() && !self.subagents.is_empty() {
                 self.activity_cursor = self.subagents.len() - 1;
             }
+        }
+    }
+
+    /// Refresh session list.
+    pub fn refresh_sessions(&mut self) {
+        if let Ok(list) = self.gateway.list_sessions() {
+            self.session_list = list;
+            if self.session_cursor >= self.session_list.len() && !self.session_list.is_empty() {
+                self.session_cursor = self.session_list.len() - 1;
+            }
+        }
+    }
+
+    /// Refresh usage stats.
+    pub fn refresh_usage(&mut self) {
+        if let Ok(stats) = self.gateway.get_usage_stats() {
+            self.usage_stats = Some(stats);
         }
     }
 

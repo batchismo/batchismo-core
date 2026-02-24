@@ -5,6 +5,7 @@ mod logs;
 mod memory;
 mod onboarding;
 mod settings;
+mod usage;
 
 use ratatui::prelude::*;
 
@@ -19,6 +20,7 @@ pub fn render(f: &mut Frame, app: &App) {
         Screen::Logs => logs::render(f, app),
         Screen::Memory => memory::render(f, app),
         Screen::Activity => activity::render(f, app),
+        Screen::Usage => usage::render(f, app),
     }
 
     // Help overlay on top of everything

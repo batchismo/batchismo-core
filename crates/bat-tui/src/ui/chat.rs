@@ -1,6 +1,6 @@
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 
 use bat_types::message::Role;
@@ -20,6 +20,11 @@ pub fn render(f: &mut Frame, app: &App) {
     render_messages(f, app, chunks[0]);
     render_input(f, app, chunks[1]);
     render_status_bar(f, app, chunks[2]);
+
+    // Session switcher overlay
+    if app.show_session_switcher {
+        render_session_switcher(f, app);
+    }
 }
 
 fn render_messages(f: &mut Frame, app: &App, area: Rect) {
@@ -160,6 +165,13 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         total_in, total_out, total, CONTEXT_LIMIT
     );
 
+    let active_key = app.gateway.active_session_key();
+    let session_indicator = if active_key != "main" {
+        format!(" │ 📂 {active_key}")
+    } else {
+        String::new()
+    };
+
     let spans = vec![
         Span::styled(
             format!(" 🤖 {} │ {} │ ", cfg.agent.name, cfg.agent.model),
@@ -167,7 +179,7 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled(token_str, Style::default().fg(color)),
         Span::styled(
-            format!("{streaming} │ ? help"),
+            format!("{streaming}{session_indicator} │ Ctrl+S sessions │ ? help"),
             Style::default().fg(Color::White),
         ),
     ];
@@ -176,4 +188,72 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         .style(Style::default().bg(Color::DarkGray));
 
     f.render_widget(bar, area);
+}
+
+fn render_session_switcher(f: &mut Frame, app: &App) {
+    let area = f.area();
+    // Center a popup
+    let width = 50u16.min(area.width.saturating_sub(4));
+    let height = (app.session_list.len() as u16 + 6).min(area.height.saturating_sub(4)).max(8);
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(x, y, width, height);
+
+    f.render_widget(Clear, popup_area);
+
+    let active_key = app.gateway.active_session_key();
+
+    if app.session_creating {
+        // New session input
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(" New Session ")
+            .border_style(Style::default().fg(Color::Cyan));
+        let inner = block.inner(popup_area);
+        f.render_widget(block, popup_area);
+
+        let prompt = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled("Session name:", Style::default().fg(Color::DarkGray))),
+            Line::from(format!("{}_", app.session_new_name)),
+            Line::from(""),
+            Line::from(Span::styled("Enter: create │ Esc: cancel", Style::default().fg(Color::DarkGray))),
+        ]);
+        f.render_widget(prompt, inner);
+    } else {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(" Sessions (Ctrl+S to close) ")
+            .border_style(Style::default().fg(Color::Cyan));
+        let inner = block.inner(popup_area);
+        f.render_widget(block, popup_area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(2)])
+            .split(inner);
+
+        let items: Vec<ListItem> = app.session_list.iter().enumerate().map(|(i, s)| {
+            let active = if s.key == active_key { " ● " } else { "   " };
+            let tokens = s.token_input + s.token_output;
+            let token_str = if tokens > 0 { format!(" ({tokens}t)") } else { String::new() };
+            let style = if i == app.session_cursor {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else if s.key == active_key {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            ListItem::new(format!("{active}{}{token_str}", s.key)).style(style)
+        }).collect();
+
+        let list = List::new(items);
+        f.render_widget(list, chunks[0]);
+
+        let help = Paragraph::new(Line::from(Span::styled(
+            " Enter: switch │ n: new │ d: delete │ Esc: close",
+            Style::default().fg(Color::DarkGray),
+        )));
+        f.render_widget(help, chunks[1]);
+    }
 }

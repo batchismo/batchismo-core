@@ -86,14 +86,28 @@ async fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         Screen::Logs => handle_logs_key(app, key).await,
         Screen::Memory => handle_memory_key(app, key).await,
         Screen::Activity => handle_activity_key(app, key).await,
+        Screen::Usage => handle_usage_key(app, key).await,
     }
 }
 
 async fn handle_chat_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    // Session switcher overlay
+    if app.show_session_switcher {
+        return handle_session_switcher_key(app, key).await;
+    }
+
     match key.code {
         KeyCode::Tab => {
             app.screen = Screen::Settings;
             app.settings_cursor = 0;
+        }
+        KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.refresh_sessions();
+            app.show_session_switcher = true;
+            app.session_creating = false;
+            // Position cursor on active session
+            let active = app.gateway.active_session_key();
+            app.session_cursor = app.session_list.iter().position(|s| s.key == active).unwrap_or(0);
         }
         KeyCode::Enter => {
             if !app.input.is_empty() {
@@ -117,6 +131,91 @@ async fn handle_chat_key(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Esc => {
             if !app.input.is_empty() {
                 app.input.clear();
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_session_switcher_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    if app.session_creating {
+        match key.code {
+            KeyCode::Enter => {
+                let name = app.session_new_name.trim().to_string();
+                if !name.is_empty() {
+                    match app.gateway.create_named_session(&name) {
+                        Ok(session) => {
+                            let _ = app.gateway.switch_session(&session.key);
+                            // Reload history for new session
+                            app.messages.clear();
+                            app.streaming_text.clear();
+                        }
+                        Err(e) => warn!("Failed to create session: {e}"),
+                    }
+                }
+                app.session_creating = false;
+                app.session_new_name.clear();
+                app.refresh_sessions();
+            }
+            KeyCode::Esc => {
+                app.session_creating = false;
+                app.session_new_name.clear();
+            }
+            KeyCode::Char(c) => app.session_new_name.push(c),
+            KeyCode::Backspace => { app.session_new_name.pop(); }
+            _ => {}
+        }
+        return Ok(());
+    }
+
+    match key.code {
+        KeyCode::Esc => {
+            app.show_session_switcher = false;
+        }
+        KeyCode::Up => {
+            app.session_cursor = app.session_cursor.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            if !app.session_list.is_empty() {
+                app.session_cursor = (app.session_cursor + 1).min(app.session_list.len() - 1);
+            }
+        }
+        KeyCode::Enter => {
+            if let Some(session) = app.session_list.get(app.session_cursor) {
+                let key = session.key.clone();
+                match app.gateway.switch_session(&key) {
+                    Ok(_) => {
+                        // Reload history
+                        if let Ok(hist) = app.gateway.get_main_history().await {
+                            app.messages = hist;
+                        }
+                        app.streaming_text.clear();
+                        app.scroll_offset = 0;
+                    }
+                    Err(e) => warn!("Failed to switch session: {e}"),
+                }
+                app.show_session_switcher = false;
+            }
+        }
+        KeyCode::Char('n') => {
+            app.session_creating = true;
+            app.session_new_name.clear();
+        }
+        KeyCode::Char('d') => {
+            if let Some(session) = app.session_list.get(app.session_cursor) {
+                if session.key != "main" {
+                    let key = session.key.clone();
+                    let _ = app.gateway.delete_session(&key);
+                    app.refresh_sessions();
+                    // If deleted the active one, reload history for main
+                    if app.gateway.active_session_key() != key {
+                        // already switched back
+                    }
+                    if let Ok(hist) = app.gateway.get_main_history().await {
+                        app.messages = hist;
+                    }
+                }
             }
         }
         _ => {}
@@ -556,10 +655,27 @@ async fn handle_editing_key(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
-async fn handle_activity_key(app: &mut App, key: KeyEvent) -> anyhow::Result<()> {
+async fn handle_usage_key(app: &mut App, key: KeyEvent) -> anyhow::Result<()> {
     match key.code {
         KeyCode::Tab => {
             app.screen = Screen::Chat;
+        }
+        KeyCode::Esc => {
+            app.screen = Screen::Chat;
+        }
+        KeyCode::Char('r') => {
+            app.refresh_usage();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_activity_key(app: &mut App, key: KeyEvent) -> anyhow::Result<()> {
+    match key.code {
+        KeyCode::Tab => {
+            app.screen = Screen::Usage;
+            app.refresh_usage();
         }
         KeyCode::Esc => {
             app.screen = Screen::Chat;
