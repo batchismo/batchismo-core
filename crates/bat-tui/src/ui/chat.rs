@@ -223,7 +223,7 @@ fn render_session_switcher(f: &mut Frame, app: &App) {
     } else {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" Sessions (Ctrl+S to close) ")
+            .title(" Sessions (Esc/Ctrl+S to close) ")
             .border_style(Style::default().fg(Color::Cyan));
         let inner = block.inner(popup_area);
         f.render_widget(block, popup_area);

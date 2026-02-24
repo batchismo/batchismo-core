@@ -173,6 +173,9 @@ async fn handle_session_switcher_key(app: &mut App, key: KeyEvent) -> Result<()>
         KeyCode::Esc => {
             app.show_session_switcher = false;
         }
+        KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.show_session_switcher = false;
+        }
         KeyCode::Up => {
             app.session_cursor = app.session_cursor.saturating_sub(1);
         }
@@ -206,14 +209,14 @@ async fn handle_session_switcher_key(app: &mut App, key: KeyEvent) -> Result<()>
             if let Some(session) = app.session_list.get(app.session_cursor) {
                 if session.key != "main" {
                     let key = session.key.clone();
+                    let was_active = app.gateway.active_session_key() == key;
                     let _ = app.gateway.delete_session(&key);
                     app.refresh_sessions();
-                    // If deleted the active one, reload history for main
-                    if app.gateway.active_session_key() != key {
-                        // already switched back
-                    }
-                    if let Ok(hist) = app.gateway.get_main_history().await {
-                        app.messages = hist;
+                    // Only reload history if we deleted the active session
+                    if was_active {
+                        if let Ok(hist) = app.gateway.get_main_history().await {
+                            app.messages = hist;
+                        }
                     }
                 }
             }
