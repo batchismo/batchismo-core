@@ -73,8 +73,8 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
   return (
     <aside className="w-14 flex-shrink-0 flex flex-col items-center border-r border-zinc-800 bg-zinc-950 py-3 gap-1">
       {/* Logo mark */}
-      <div className="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center mb-3">
-        <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="w-8 h-8 rounded-lg bg-[#39FF14]/20 border border-[#39FF14]/30 flex items-center justify-center mb-3">
+        <svg className="w-4 h-4 text-[#39FF14]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       </div>

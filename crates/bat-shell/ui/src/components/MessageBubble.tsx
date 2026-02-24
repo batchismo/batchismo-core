@@ -26,8 +26,8 @@ export function MessageBubble({ message }: Props) {
           <div
             className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
               isUser
-                ? 'bg-indigo-600 text-white'
-                : 'bg-zinc-800 text-zinc-100'
+                ? 'bg-zinc-700 text-zinc-100'
+                : 'text-[#39FF14]'
             }`}
           >
             {isUser ? (

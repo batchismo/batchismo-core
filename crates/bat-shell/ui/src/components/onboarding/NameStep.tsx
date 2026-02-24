@@ -22,7 +22,7 @@ export function NameStep({ name, setName, onNext, onBack }: Props) {
           value={name}
           onChange={e => setName(e.target.value)}
           placeholder="Enter a name..."
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-[#39FF14]"
           autoFocus
         />
       </div>
@@ -35,7 +35,7 @@ export function NameStep({ name, setName, onNext, onBack }: Props) {
             onClick={() => setName(s)}
             className={`px-3 py-1 text-xs rounded-full border transition-colors ${
               name === s
-                ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
+                ? 'border-[#39FF14] bg-[#39FF14]/20 text-[#39FF14]'
                 : 'border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300'
             }`}
           >
@@ -48,7 +48,7 @@ export function NameStep({ name, setName, onNext, onBack }: Props) {
       {name.trim() && (
         <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-4 py-3 mb-6">
           <p className="text-sm text-zinc-300">
-            Meet <span className="text-indigo-400 font-medium">{name.trim()}</span>, your personal AI agent.
+            Meet <span className="text-[#39FF14] font-medium">{name.trim()}</span>, your personal AI agent.
           </p>
         </div>
       )}
@@ -63,7 +63,7 @@ export function NameStep({ name, setName, onNext, onBack }: Props) {
         <button
           onClick={onNext}
           disabled={!name.trim()}
-          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+          className="px-6 py-2.5 bg-[#39FF14] hover:bg-[#2bcc10] disabled:opacity-40 disabled:cursor-not-allowed text-black font-medium rounded-lg transition-colors"
         >
           Next →
         </button>

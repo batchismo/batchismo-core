@@ -159,7 +159,7 @@ export function MemoryPanel() {
             <button
               onClick={handleConsolidate}
               disabled={consolidating || (summary?.totalObservations ?? 0) === 0}
-              className="w-full mt-3 px-3 py-1.5 text-xs bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/30 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+              className="w-full mt-3 px-3 py-1.5 text-xs bg-[#39FF14]/20 border border-[#39FF14]/30 text-[#39FF14] hover:bg-[#39FF14]/30 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
             >
               {consolidating ? 'Consolidating...' : '🧠 Consolidate Now'}
             </button>
@@ -190,7 +190,7 @@ export function MemoryPanel() {
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded"
+                  className="px-3 py-1 text-xs bg-[#39FF14] hover:bg-[#2bcc10] disabled:opacity-50 text-black rounded"
                 >
                   {saving ? 'Saving...' : 'Save'}
                 </button>
@@ -216,7 +216,7 @@ export function MemoryPanel() {
             <textarea
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
-              className="w-full h-full bg-zinc-900 text-zinc-200 font-mono text-sm p-3 rounded-lg border border-zinc-700 focus:outline-none focus:border-indigo-500 resize-none"
+              className="w-full h-full bg-zinc-900 text-zinc-200 font-mono text-sm p-3 rounded-lg border border-zinc-700 focus:outline-none focus:border-[#39FF14] resize-none"
               spellCheck={false}
             />
           ) : (

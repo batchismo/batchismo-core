@@ -82,7 +82,7 @@ export function ToolsPage() {
                   : 'bg-zinc-900/30 border-zinc-800 opacity-60'
               }`}
             >
-              <div className={`flex-shrink-0 ${tool.enabled ? 'text-indigo-400' : 'text-zinc-600'}`}>
+              <div className={`flex-shrink-0 ${tool.enabled ? 'text-[#39FF14]' : 'text-zinc-600'}`}>
                 {toolIcon(tool.name)}
               </div>
               <div className="flex-1 min-w-0">
@@ -96,7 +96,7 @@ export function ToolsPage() {
                 onClick={() => handleToggle(tool.name, tool.enabled)}
                 disabled={toggling === tool.name}
                 className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
-                  tool.enabled ? 'bg-indigo-600' : 'bg-zinc-600'
+                  tool.enabled ? 'bg-[#39FF14]' : 'bg-zinc-600'
                 }`}
                 role="switch"
                 aria-checked={tool.enabled}

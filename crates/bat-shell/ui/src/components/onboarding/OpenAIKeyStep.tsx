@@ -41,11 +41,11 @@ export function OpenAIKeyStep({ apiKey, setApiKey, onNext, onBack }: Props) {
           onChange={e => setApiKey(e.target.value)}
           placeholder="sk-..."
           className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white
-                     placeholder-zinc-600 outline-none focus:border-indigo-500 transition-colors"
+                     placeholder-zinc-600 outline-none focus:border-[#39FF14] transition-colors"
         />
         <p className="text-[10px] text-zinc-600 mt-1.5">
           Get one at{' '}
-          <a href="https://platform.openai.com/api-keys" className="text-indigo-400 hover:underline" target="_blank">
+          <a href="https://platform.openai.com/api-keys" className="text-[#39FF14] hover:underline" target="_blank">
             platform.openai.com/api-keys
           </a>
         </p>
@@ -60,7 +60,7 @@ export function OpenAIKeyStep({ apiKey, setApiKey, onNext, onBack }: Props) {
         </button>
         <button
           onClick={onNext}
-          className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
+          className="px-6 py-2 bg-[#39FF14] hover:bg-[#2bcc10] text-black text-sm font-medium rounded-lg transition-colors"
         >
           {apiKey.trim() ? 'Next →' : 'Skip →'}
         </button>

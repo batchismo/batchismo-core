@@ -61,7 +61,7 @@ export function OnboardingWizard({ onComplete }: Props) {
             <div
               key={s}
               className={`w-2 h-2 rounded-full transition-colors ${
-                i <= stepIndex ? 'bg-indigo-500' : 'bg-zinc-700'
+                i <= stepIndex ? 'bg-[#2bcc10]' : 'bg-zinc-700'
               }`}
             />
           ))}

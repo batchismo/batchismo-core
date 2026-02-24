@@ -105,11 +105,11 @@ export function SessionSwitcher({ onSessionChange }: Props) {
                   onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setShowNew(false) }}
                   placeholder="Session name..."
                   className="flex-1 bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white
-                             placeholder-zinc-500 outline-none focus:border-indigo-500"
+                             placeholder-zinc-500 outline-none focus:border-[#39FF14]"
                 />
                 <button
                   onClick={handleCreate}
-                  className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-xs text-white"
+                  className="px-2 py-1 bg-[#39FF14] hover:bg-[#2bcc10] rounded text-xs text-black"
                 >
                   +
                 </button>

@@ -10,8 +10,8 @@ export function AboutPage() {
 
       <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-6 space-y-4">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
-            <svg className="w-6 h-6 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="w-12 h-12 rounded-xl bg-[#39FF14]/20 border border-[#39FF14]/30 flex items-center justify-center">
+            <svg className="w-6 h-6 text-[#39FF14]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
@@ -51,7 +51,7 @@ export function AboutPage() {
             { label: 'bat-types', desc: 'Shared types and IPC protocol definitions' },
           ].map(({ label, desc }) => (
             <div key={label} className="flex gap-3">
-              <span className="font-mono text-indigo-400 flex-shrink-0 w-24">{label}</span>
+              <span className="font-mono text-[#39FF14] flex-shrink-0 w-24">{label}</span>
               <span>{desc}</span>
             </div>
           ))}

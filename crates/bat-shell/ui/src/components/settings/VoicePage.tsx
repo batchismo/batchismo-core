@@ -113,7 +113,7 @@ export function VoicePage() {
             onClick={() => setTtsEnabled(!ttsEnabled)}
             disabled={!hasAnyTtsKey}
             className={`relative w-10 h-5 rounded-full transition-colors ${
-              ttsEnabled ? 'bg-indigo-600' : 'bg-zinc-700'
+              ttsEnabled ? 'bg-[#39FF14]' : 'bg-zinc-700'
             } ${!hasAnyTtsKey ? 'opacity-40 cursor-not-allowed' : ''}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
@@ -133,7 +133,7 @@ export function VoicePage() {
                   disabled={!hasOpenAIKey}
                   className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${
                     ttsProvider === 'openai'
-                      ? 'border-indigo-500 bg-indigo-900/40 text-indigo-300'
+                      ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]'
                       : hasOpenAIKey
                         ? 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-500'
                         : 'border-zinc-800 bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
@@ -149,7 +149,7 @@ export function VoicePage() {
                   disabled={!hasElevenlabsKey}
                   className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${
                     ttsProvider === 'elevenlabs'
-                      ? 'border-indigo-500 bg-indigo-900/40 text-indigo-300'
+                      ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]'
                       : hasElevenlabsKey
                         ? 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-500'
                         : 'border-zinc-800 bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
@@ -171,7 +171,7 @@ export function VoicePage() {
                   <select
                     value={openaiTtsModel}
                     onChange={e => setOpenaiTtsModel(e.target.value)}
-                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-[#39FF14]"
                   >
                     <option value="gpt-4o-mini-tts">gpt-4o-mini-tts (fastest, cheapest)</option>
                     <option value="tts-1">tts-1 (standard)</option>
@@ -183,7 +183,7 @@ export function VoicePage() {
                   <select
                     value={openaiVoice}
                     onChange={e => setOpenaiVoice(e.target.value)}
-                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-[#39FF14]"
                   >
                     <option value="alloy">Alloy (neutral)</option>
                     <option value="echo">Echo (male)</option>
@@ -209,14 +209,14 @@ export function VoicePage() {
                       value={elevenlabsVoiceId}
                       onChange={e => setElevenlabsVoiceId(e.target.value)}
                       placeholder="Enter voice ID manually"
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500 font-mono"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-[#39FF14] font-mono"
                     />
                   </div>
                 ) : elVoices.length > 0 ? (
                   <select
                     value={elevenlabsVoiceId}
                     onChange={e => setElevenlabsVoiceId(e.target.value)}
-                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-[#39FF14]"
                   >
                     {/* Group by category */}
                     {['cloned', 'generated', 'premade'].map(cat => {
@@ -244,12 +244,12 @@ export function VoicePage() {
                     value={elevenlabsVoiceId}
                     onChange={e => setElevenlabsVoiceId(e.target.value)}
                     placeholder="pFZP5JQG7iQjIQuC4Bku"
-                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500 font-mono"
+                    className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-[#39FF14] font-mono"
                   />
                 )}
                 <p className="text-[10px] text-zinc-600 mt-1">
                   Manage voices at{' '}
-                  <a href="https://elevenlabs.io/voice-library" className="text-indigo-400 hover:underline" target="_blank">
+                  <a href="https://elevenlabs.io/voice-library" className="text-[#39FF14] hover:underline" target="_blank">
                     ElevenLabs Voice Library
                   </a>
                 </p>
@@ -270,7 +270,7 @@ export function VoicePage() {
             onClick={() => setSttEnabled(!sttEnabled)}
             disabled={!hasOpenAIKey}
             className={`relative w-10 h-5 rounded-full transition-colors ${
-              sttEnabled ? 'bg-indigo-600' : 'bg-zinc-700'
+              sttEnabled ? 'bg-[#39FF14]' : 'bg-zinc-700'
             } ${!hasOpenAIKey ? 'opacity-40 cursor-not-allowed' : ''}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
@@ -289,7 +289,7 @@ export function VoicePage() {
       <button
         onClick={handleSave}
         className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-          saved ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+          saved ? 'bg-emerald-600 text-white' : 'bg-[#39FF14] hover:bg-[#2bcc10] text-black'
         }`}
       >
         {saved ? '✓ Saved' : 'Save Changes'}

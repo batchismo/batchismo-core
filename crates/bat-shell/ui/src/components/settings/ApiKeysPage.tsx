@@ -113,7 +113,7 @@ export function ApiKeysPage() {
                   onChange={e => setKeys({ ...keys, [field.id]: e.target.value })}
                   placeholder={field.placeholder}
                   className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white
-                             placeholder-zinc-600 outline-none focus:border-indigo-500 font-mono"
+                             placeholder-zinc-600 outline-none focus:border-[#39FF14] font-mono"
                 />
                 <button
                   onClick={() => setShowKey({ ...showKey, [field.id]: !isVisible })}
@@ -125,7 +125,7 @@ export function ApiKeysPage() {
               </div>
               <p className="text-[10px] text-zinc-600 mt-1.5">
                 Get one at{' '}
-                <a href={field.helpUrl} className="text-indigo-400 hover:underline" target="_blank">
+                <a href={field.helpUrl} className="text-[#39FF14] hover:underline" target="_blank">
                   {field.helpLabel}
                 </a>
               </p>
@@ -137,7 +137,7 @@ export function ApiKeysPage() {
       <button
         onClick={handleSave}
         className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-          saved ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+          saved ? 'bg-emerald-600 text-white' : 'bg-[#39FF14] hover:bg-[#2bcc10] text-black'
         }`}
       >
         {saved ? '✓ Saved' : 'Save Changes'}

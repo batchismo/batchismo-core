@@ -5,7 +5,14 @@ export default {
     './src/**/*.{ts,tsx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        brand: {
+          green: '#39FF14',
+          'green-dim': '#2bcc10',
+        },
+      },
+    },
   },
   plugins: [],
 }

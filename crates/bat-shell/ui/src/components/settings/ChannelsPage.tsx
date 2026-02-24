@@ -61,7 +61,7 @@ export function ChannelsPage() {
           <button
             onClick={() => setTgEnabled(!tgEnabled)}
             className={`relative w-10 h-5 rounded-full transition-colors ${
-              tgEnabled ? 'bg-indigo-600' : 'bg-zinc-700'
+              tgEnabled ? 'bg-[#39FF14]' : 'bg-zinc-700'
             }`}
           >
             <span
@@ -82,10 +82,10 @@ export function ChannelsPage() {
                 onChange={e => setTgToken(e.target.value)}
                 placeholder="123456:ABC-DEF..."
                 className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white
-                           placeholder-zinc-600 outline-none focus:border-indigo-500"
+                           placeholder-zinc-600 outline-none focus:border-[#39FF14]"
               />
               <p className="text-[10px] text-zinc-600 mt-1">
-                Get one from <a href="https://t.me/BotFather" className="text-indigo-400 hover:underline" target="_blank">@BotFather</a> on Telegram
+                Get one from <a href="https://t.me/BotFather" className="text-[#39FF14] hover:underline" target="_blank">@BotFather</a> on Telegram
               </p>
             </div>
             <div>
@@ -95,7 +95,7 @@ export function ChannelsPage() {
                 onChange={e => setTgAllowFrom(e.target.value)}
                 placeholder="123456789, 987654321"
                 className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white
-                           placeholder-zinc-600 outline-none focus:border-indigo-500"
+                           placeholder-zinc-600 outline-none focus:border-[#39FF14]"
               />
               <p className="text-[10px] text-zinc-600 mt-1">
                 Comma-separated Telegram user IDs. Leave empty to allow anyone (not recommended).
@@ -120,7 +120,7 @@ export function ChannelsPage() {
         className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
           saved
             ? 'bg-emerald-600 text-white'
-            : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+            : 'bg-[#39FF14] hover:bg-[#2bcc10] text-black'
         }`}
       >
         {saved ? '✓ Saved' : 'Save Changes'}

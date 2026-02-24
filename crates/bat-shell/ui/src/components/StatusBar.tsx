@@ -15,7 +15,7 @@ const statusLabel: Record<AgentStatus, string> = {
 const statusColor: Record<AgentStatus, string> = {
   idle: 'text-emerald-400',
   thinking: 'text-yellow-400',
-  tool_calling: 'text-indigo-400',
+  tool_calling: 'text-[#39FF14]',
 }
 
 // Claude context window limit

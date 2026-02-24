@@ -66,7 +66,7 @@ export function UsagePanel() {
                 </div>
                 <div className="w-full bg-zinc-800 rounded-full h-1.5 mb-1.5">
                   <div
-                    className="bg-indigo-500 h-1.5 rounded-full transition-all"
+                    className="bg-[#2bcc10] h-1.5 rounded-full transition-all"
                     style={{ width: `${Math.max(pct, 1)}%` }}
                   />
                 </div>

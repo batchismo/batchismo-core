@@ -133,14 +133,14 @@ export function PathPoliciesPage() {
               type="checkbox"
               checked={newRecursive}
               onChange={e => setNewRecursive(e.target.checked)}
-              className="rounded border-zinc-600 bg-zinc-900 text-indigo-500"
+              className="rounded border-zinc-600 bg-zinc-900 text-[#39FF14]"
             />
             Include subdirectories (recursive)
           </label>
           <button
             type="submit"
             disabled={adding || !newPath.trim()}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded-md transition-colors"
+            className="bg-[#39FF14] hover:bg-[#2bcc10] disabled:opacity-40 disabled:cursor-not-allowed text-black text-sm px-4 py-2 rounded-md transition-colors"
           >
             {adding ? 'Adding…' : 'Add Policy'}
           </button>

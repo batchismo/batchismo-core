@@ -6,8 +6,8 @@ export function WelcomeStep({ onNext }: Props) {
   return (
     <div className="text-center">
       {/* Logo */}
-      <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center mx-auto mb-6">
-        <svg className="w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="w-16 h-16 rounded-2xl bg-[#39FF14]/20 border border-[#39FF14]/30 flex items-center justify-center mx-auto mb-6">
+        <svg className="w-8 h-8 text-[#39FF14]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       </div>
@@ -25,7 +25,7 @@ export function WelcomeStep({ onNext }: Props) {
 
       <button
         onClick={onNext}
-        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg transition-colors"
+        className="px-6 py-2.5 bg-[#39FF14] hover:bg-[#2bcc10] text-black font-medium rounded-lg transition-colors"
       >
         Get Started
       </button>

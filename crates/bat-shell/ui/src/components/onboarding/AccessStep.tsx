@@ -88,7 +88,7 @@ export function AccessStep({ folders, setFolders, onNext, onBack }: Props) {
         <button
           onClick={onNext}
           disabled={folders.length === 0}
-          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+          className="px-6 py-2.5 bg-[#39FF14] hover:bg-[#2bcc10] disabled:opacity-40 disabled:cursor-not-allowed text-black font-medium rounded-lg transition-colors"
         >
           Next →
         </button>

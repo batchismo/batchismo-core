@@ -35,7 +35,7 @@ export function ApiKeyStep({ apiKey, setApiKey, onNext, onBack }: Props) {
       <p className="text-zinc-400 text-sm mb-6">
         Batchismo uses Anthropic's Claude to power your agent. Enter your API key below.
         You can get one at{' '}
-        <span className="text-indigo-400">console.anthropic.com</span>.
+        <span className="text-[#39FF14]">console.anthropic.com</span>.
       </p>
 
       <div className="mb-4">
@@ -47,7 +47,7 @@ export function ApiKeyStep({ apiKey, setApiKey, onNext, onBack }: Props) {
               value={apiKey}
               onChange={e => { setApiKey(e.target.value); setValidated(false); setError('') }}
               placeholder="sk-ant-..."
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 font-mono"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-[#39FF14] font-mono"
             />
             <button
               onClick={() => setShowKey(!showKey)}
@@ -88,7 +88,7 @@ export function ApiKeyStep({ apiKey, setApiKey, onNext, onBack }: Props) {
         <button
           onClick={onNext}
           disabled={!validated}
-          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+          className="px-6 py-2.5 bg-[#39FF14] hover:bg-[#2bcc10] disabled:opacity-40 disabled:cursor-not-allowed text-black font-medium rounded-lg transition-colors"
         >
           Next →
         </button>

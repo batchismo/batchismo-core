@@ -138,7 +138,7 @@ export function AgentConfigPage() {
                     onClick={() => updateAgent({ model: m.id })}
                     className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${
                       config.agent.model === m.id
-                        ? 'border-indigo-500 bg-indigo-900/40 text-indigo-300'
+                        ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]'
                         : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300'
                     }`}
                   >
@@ -200,7 +200,7 @@ export function AgentConfigPage() {
           <button
             type="submit"
             disabled={saving}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm px-5 py-2 rounded-md transition-colors"
+            className="bg-[#39FF14] hover:bg-[#2bcc10] disabled:opacity-40 text-black text-sm px-5 py-2 rounded-md transition-colors"
           >
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
@@ -218,7 +218,7 @@ export function AgentConfigPage() {
             type="button"
             onClick={handleLoadPrompt}
             disabled={loadingPrompt}
-            className="text-sm text-indigo-400 hover:text-indigo-300 disabled:opacity-40 transition-colors"
+            className="text-sm text-[#39FF14] hover:text-[#39FF14] disabled:opacity-40 transition-colors"
           >
             {loadingPrompt ? 'Loading…' : showPrompt ? 'Refresh' : 'Preview'}
           </button>

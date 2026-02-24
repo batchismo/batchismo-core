@@ -126,7 +126,7 @@ export function LogsPanel() {
         <button
           onClick={() => setPinToBottom(!pinToBottom)}
           title={pinToBottom ? 'Unpin from bottom' : 'Pin to bottom'}
-          className={`text-xs px-2 py-1 rounded ${pinToBottom ? 'bg-indigo-600/30 text-indigo-400' : 'bg-zinc-800 text-zinc-500'}`}
+          className={`text-xs px-2 py-1 rounded ${pinToBottom ? 'bg-[#39FF14]/30 text-[#39FF14]' : 'bg-zinc-800 text-zinc-500'}`}
         >
           {pinToBottom ? '📌 Auto-scroll' : '📌 Paused'}
         </button>

@@ -36,7 +36,7 @@ export function InputBar({ onSend, disabled }: Props) {
 
   return (
     <div className="border-t border-zinc-700 bg-zinc-900 px-4 py-3">
-      <div className="flex items-end gap-2 rounded-xl border border-zinc-600 bg-zinc-800 px-3 py-2 focus-within:border-indigo-500">
+      <div className="flex items-end gap-2 rounded-xl border border-zinc-600 bg-zinc-800 px-3 py-2 focus-within:border-[#39FF14]">
         <textarea
           ref={textareaRef}
           value={text}
@@ -52,7 +52,7 @@ export function InputBar({ onSend, disabled }: Props) {
         <button
           onClick={handleSend}
           disabled={disabled || !text.trim()}
-          className="flex-shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex-shrink-0 rounded-lg bg-[#39FF14] px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-[#2bcc10] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Send
         </button>
