@@ -49,7 +49,9 @@ The system is built in Rust for performance, security, and cross-platform native
 
 Existing AI agent platforms (OpenClaw and its successors) require technical users, expose dangerous defaults, and are increasingly controlled by large AI companies with misaligned incentives. They do not learn from the individual user over time. They do not adapt their behavior based on observed patterns. Their isolation models are weak or nonexistent. And they require a developer to install and maintain them.
 
-The gap in the market is a secure, self-improving, non-developer-friendly AI agent runtime that runs entirely on the user's own hardware, respects the user's defined boundaries, and gets meaningfully smarter about that specific user over time.
+The gap in the market is a secure, self-improving, non-developer-friendly AI agent runtime that keeps all data, memory, and configuration on the user's own hardware, respects the user's defined boundaries, and gets meaningfully smarter about that specific user over time.
+
+**Important distinction:** Batchismo is a local-first application, not an offline application. By default, the agent sends conversation messages to cloud LLM providers (Anthropic, OpenAI) for inference. No Batchismo server ever sees user data, and conversation transcripts are stored only on the local device. For organizations that require true air-gapped operation, Batchismo supports local LLM backends (see Section 25) where no data leaves the device at all.
 
 ---
 
@@ -1261,6 +1263,97 @@ The admin controls *what the agent can do*, not *what the user talks about*. Thi
 **Phase C (admin console):** Web-based admin interface for policy editing, device management, and audit viewing. Could be a separate product/repo.
 
 **Phase D (audit forwarding):** Async event forwarding pipeline with retry and local queuing.
+
+---
+
+## 25. Local LLM Support & Data Privacy
+
+### 25.1 Data Flow Transparency
+
+Users and administrators should have a clear understanding of where their data goes. Batchismo has three data flow modes:
+
+**Cloud mode (default):**
+- Conversation messages are sent to cloud LLM providers (Anthropic, OpenAI) for inference
+- The LLM provider processes the request and returns a response
+- No Batchismo-operated server is involved. The connection is direct: user's device to LLM API endpoint.
+- Conversation transcripts, memory files, observations, and audit logs are stored only on the local device
+- What the LLM provider does with API traffic is governed by their own data policies (both Anthropic and OpenAI state they do not train on API data as of this writing, but this is their commitment, not ours)
+
+**Hybrid mode:**
+- Cloud LLMs used for complex tasks (reasoning, long context)
+- Local LLMs used for lightweight tasks (memory consolidation, simple queries, classification)
+- User or admin controls which tasks route where
+
+**Air-gapped mode (local only):**
+- All inference runs on a local LLM backend
+- Zero data leaves the device
+- Suitable for regulated industries (healthcare, legal, finance, defense, government)
+- Quality tradeoff vs. cloud models exists but is narrowing rapidly
+
+### 25.2 Local LLM Integration via Ollama
+
+Ollama is the primary local LLM backend. It runs as a lightweight local server and exposes an OpenAI-compatible API on localhost.
+
+**Why Ollama:**
+- Runs on consumer hardware (Mac M-series, NVIDIA GPUs, even CPU-only)
+- OpenAI-compatible API means minimal integration work
+- Supports a wide range of models (Llama 3, Mistral, Phi-3, Gemma, Qwen, DeepSeek, and more)
+- Active open-source project with strong community
+- No account, no API key, no cloud dependency
+
+**Integration design:**
+- Ollama is added as a provider in the unified key registry (Section 23)
+- No API key required. User provides only the endpoint URL (default: `http://localhost:11434`)
+- Agent Config model picker shows locally available models (fetched via `GET /api/tags`)
+- LLM client in bat-agent routes to the OpenAI-compatible endpoint based on the selected model's provider
+
+**Configuration:**
+
+```toml
+[api_keys]
+ollama_endpoint = "http://localhost:11434"   # no key needed
+```
+
+### 25.3 Provider Routing
+
+With local LLM support, the model field in agent config implicitly determines the provider:
+
+| Model prefix/name | Routes to |
+|---|---|
+| `claude-*` | Anthropic API (requires Anthropic key) |
+| `gpt-*`, `o3-*` | OpenAI API (requires OpenAI key) |
+| `llama3`, `mistral`, `phi3`, etc. | Ollama localhost (no key) |
+
+The gateway resolves the provider from the model name and routes the request to the appropriate client. No manual provider selection needed.
+
+### 25.4 Enterprise Air-Gap Deployment
+
+For organizations requiring zero data exfiltration:
+
+1. Admin policy (Section 24) restricts the model allowlist to local models only
+2. Network policy blocks outbound connections to cloud LLM endpoints
+3. Ollama runs on the employee's device or on an internal GPU server
+4. Admin can push a custom Ollama endpoint URL via policy sync (e.g., a shared internal inference server)
+5. All audit forwarding goes to the internal admin console, never to external services
+
+This gives enterprises a fully self-contained AI agent deployment where the only network traffic is internal policy sync and audit forwarding.
+
+### 25.5 Quality Considerations
+
+Local models are less capable than frontier cloud models. The system should help users understand the tradeoff:
+
+- Model picker shows a quality indicator (e.g., parameter count, context window) alongside each model
+- If a local model fails or produces poor results on a complex task, the agent can suggest trying a cloud model (if available and permitted)
+- Memory consolidation and other background tasks are good candidates for local models since they don't need frontier-level reasoning
+- The system never silently falls back to a cloud model. The user or admin always controls where inference runs.
+
+### 25.6 Implementation Phases
+
+**Phase A:** Add Ollama as a provider. Detect local models via API. Route requests based on model name. This requires building an OpenAI-compatible chat client in bat-agent (also needed for OpenAI GPT models).
+
+**Phase B:** Hybrid routing. User can assign different models to different task types (main chat, subagents, memory consolidation).
+
+**Phase C:** Enterprise air-gap mode. Admin policy enforcement for model restrictions and network lockdown.
 
 ---
 
