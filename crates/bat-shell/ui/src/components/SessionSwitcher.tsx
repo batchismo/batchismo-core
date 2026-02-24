@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { SessionMeta } from '../types'
-import { listSessions, createSession, switchSession, deleteSessionByKey, getActiveSessionKey, getHistory } from '../lib/tauri'
+import { listSessions, createSession, switchSession, deleteSessionByKey, getActiveSessionKey } from '../lib/tauri'
 
 interface Props {
   onSessionChange: (session: SessionMeta) => void
@@ -49,8 +49,6 @@ export function SessionSwitcher({ onSessionChange }: Props) {
     refresh()
   }
 
-  const activeSession = sessions.find(s => s.key === activeKey)
-
   return (
     <div className="relative">
       {/* Current session button */}
@@ -82,7 +80,7 @@ export function SessionSwitcher({ onSessionChange }: Props) {
                 <span className={`w-1.5 h-1.5 rounded-full ${s.key === activeKey ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
                 <span className="flex-1 truncate font-medium">{s.key}</span>
                 <span className="text-[10px] text-zinc-600">
-                  {s.tokenInput + s.tokenOutput > 0 ? `${s.tokenInput + s.tokenOutput}t` : ''}
+                  {s.token_input + s.token_output > 0 ? `${s.token_input + s.token_output}t` : ''}
                 </span>
                 {s.key !== 'main' && (
                   <button
