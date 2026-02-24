@@ -1,3 +1,4 @@
+pub mod channels;
 pub mod config;
 pub mod consolidation;
 pub mod db;
@@ -5,6 +6,7 @@ pub mod events;
 pub mod ipc;
 pub mod memory;
 pub mod process_manager;
+pub mod sandbox;
 pub mod session;
 pub mod system_prompt;
 
@@ -15,7 +17,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use bat_types::{
@@ -50,6 +52,8 @@ pub struct Gateway {
     config: Arc<RwLock<BatConfig>>,
     event_bus: EventBus,
     process_manager: process_manager::ProcessManager,
+    /// Key of the currently active session.
+    active_session_key: Arc<RwLock<String>>,
 }
 
 impl Gateway {
@@ -66,7 +70,145 @@ impl Gateway {
             config: Arc::new(RwLock::new(config)),
             event_bus,
             process_manager: process_manager::ProcessManager::new(),
+            active_session_key: Arc::new(RwLock::new("main".to_string())),
         })
+    }
+
+    /// Start channel adapters (Telegram, etc.) based on config.
+    pub fn start_channels(&self) {
+        let cfg = self.config.read().unwrap().clone();
+
+        // Telegram
+        if let Some(ref tg_cfg) = cfg.channels.telegram {
+            if tg_cfg.enabled && !tg_cfg.bot_token.is_empty() {
+                let tg_config = channels::telegram::TelegramConfig {
+                    bot_token: tg_cfg.bot_token.clone(),
+                    allow_from: tg_cfg.allow_from.clone(),
+                };
+                let (mut inbound_rx, outbound_tx) = channels::telegram::TelegramAdapter::start(tg_config);
+
+                // Route inbound Telegram messages to the gateway
+                let event_bus = self.event_bus.clone();
+                let db = Arc::clone(&self.db);
+                let session_manager = Arc::clone(&self.session_manager);
+                let config = Arc::clone(&self.config);
+                let proc_mgr = self.process_manager.clone();
+                let outbound = outbound_tx.clone();
+
+                tokio::spawn(async move {
+                    // Subscribe to events for outbound responses
+                    let mut event_rx = event_bus.subscribe();
+
+                    // Track which chat_id to respond to
+                    let active_chat_id = std::sync::Arc::new(std::sync::Mutex::new(0i64));
+
+                    let chat_id_for_events = active_chat_id.clone();
+                    let outbound_for_events = outbound.clone();
+
+                    // Event forwarding task — send agent responses to Telegram
+                    tokio::spawn(async move {
+                        let mut pending_text = String::new();
+                        loop {
+                            match event_rx.recv().await {
+                                Ok(AgentToGateway::TextDelta { content }) => {
+                                    pending_text.push_str(&content);
+                                }
+                                Ok(AgentToGateway::TurnComplete { ref message }) => {
+                                    let chat_id = *chat_id_for_events.lock().unwrap();
+                                    if chat_id != 0 {
+                                        let text = if !message.content.is_empty() {
+                                            message.content.clone()
+                                        } else {
+                                            pending_text.clone()
+                                        };
+                                        if !text.is_empty() {
+                                            let _ = outbound_for_events.send(
+                                                channels::telegram::OutboundMessage {
+                                                    chat_id,
+                                                    text,
+                                                    reply_to: None,
+                                                    voice_data: None,
+                                                },
+                                            );
+                                        }
+                                    }
+                                    pending_text.clear();
+                                }
+                                Ok(AgentToGateway::Error { message }) => {
+                                    let chat_id = *chat_id_for_events.lock().unwrap();
+                                    if chat_id != 0 {
+                                        let _ = outbound_for_events.send(
+                                            channels::telegram::OutboundMessage {
+                                                chat_id,
+                                                text: format!("⚠️ {message}"),
+                                                reply_to: None,
+                                                voice_data: None,
+                                            },
+                                        );
+                                    }
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                                Err(_) => break,
+                                _ => {}
+                            }
+                        }
+                    });
+
+                    // Inbound message routing
+                    while let Some(msg) = inbound_rx.recv().await {
+                        *active_chat_id.lock().unwrap() = msg.chat_id;
+                        info!("Telegram inbound from user {}: {}", msg.user_id, &msg.text[..msg.text.len().min(50)]);
+
+                        // Get the active session and route the message
+                        let active_key = "main"; // Telegram routes to main session
+                        let model = config.read().unwrap().agent.model.clone();
+                        let session = match db.get_session_by_key(active_key) {
+                            Ok(Some(s)) => s,
+                            Ok(None) => match db.create_session(active_key, &model) {
+                                Ok(s) => s,
+                                Err(e) => { error!("Failed to create session: {e}"); continue; }
+                            },
+                            Err(e) => { error!("DB error: {e}"); continue; }
+                        };
+
+                        let history = session_manager.get_history(session.id).unwrap_or_default();
+
+                        let user_msg = bat_types::message::Message::user(session.id, &msg.text);
+                        let _ = session_manager.append_message(&user_msg);
+
+                        let (cfg_model, disabled_tools, cfg_api_key) = {
+                            let cfg = config.read().unwrap();
+                            (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), cfg.agent.api_key.clone())
+                        };
+                        let system_prompt = {
+                            let cfg = config.read().unwrap();
+                            let policies = db.get_path_policies().unwrap_or_default();
+                            crate::system_prompt::build_system_prompt(&cfg, &policies).unwrap_or_default()
+                        };
+                        let api_key = std::env::var("ANTHROPIC_API_KEY").ok().or(cfg_api_key).unwrap_or_default();
+                        let path_policies = db.get_path_policies().unwrap_or_default();
+
+                        let eb = event_bus.clone();
+                        let sm = Arc::new(SessionManager::new(Arc::clone(&db), cfg_model.clone()));
+                        let db2 = Arc::clone(&db);
+                        let pm = proc_mgr.clone();
+                        let cfg2 = Arc::clone(&config);
+
+                        tokio::spawn(async move {
+                            if let Err(e) = run_agent_turn(
+                                session.id, cfg_model, system_prompt, history, msg.text,
+                                path_policies, disabled_tools, api_key,
+                                eb, sm, db2, pm, cfg2,
+                            ).await {
+                                error!("Telegram agent turn failed: {e}");
+                            }
+                        });
+                    }
+                });
+
+                info!("Telegram channel adapter started");
+            }
+        }
     }
 
     /// Subscribe to the event bus for streaming events from agents.
@@ -83,11 +225,24 @@ impl Gateway {
 
     /// Send a user message. Persists the message, spawns the agent in the
     /// background, and returns immediately. Events arrive via the event bus.
+    /// Get or create a session by key.
+    fn get_or_create_session(&self, key: &str) -> Result<SessionMeta> {
+        if key == "main" {
+            self.session_manager.get_or_create_main()
+        } else {
+            match self.db.get_session_by_key(key)? {
+                Some(s) => Ok(s),
+                None => {
+                    let model = self.config.read().unwrap().agent.model.clone();
+                    self.db.create_session(key, &model)
+                }
+            }
+        }
+    }
+
     pub async fn send_user_message(&self, content: &str) -> Result<()> {
-        let session = self
-            .session_manager
-            .get_or_create_main()
-            .context("Failed to get or create main session")?;
+        let active_key = self.active_session_key();
+        let session = self.get_or_create_session(&active_key)?;
 
         // Collect history BEFORE persisting the new user message
         // (the agent will append the user message itself, so we avoid duplicates)
@@ -186,13 +341,77 @@ impl Gateway {
 
     /// Get the full message history for the main session.
     pub async fn get_main_history(&self) -> Result<Vec<Message>> {
-        let session = self.session_manager.get_or_create_main()?;
+        let active_key = self.active_session_key();
+        let session = self.get_or_create_session(&active_key)?;
         self.session_manager.get_history(session.id)
     }
 
-    /// Get the main session metadata.
+    /// Get the active session metadata.
     pub async fn get_main_session(&self) -> Result<SessionMeta> {
-        self.session_manager.get_or_create_main()
+        let active_key = self.active_session_key();
+        self.get_or_create_session(&active_key)
+    }
+
+    /// List all user sessions.
+    pub fn list_sessions(&self) -> Result<Vec<SessionMeta>> {
+        self.db.list_sessions()
+    }
+
+    /// Create a new named session.
+    pub fn create_named_session(&self, name: &str) -> Result<SessionMeta> {
+        let model = self.config.read().unwrap().agent.model.clone();
+        self.db.create_session(name, &model)
+    }
+
+    /// Switch active session by key. Returns the session.
+    pub fn switch_session(&self, key: &str) -> Result<SessionMeta> {
+        let model = self.config.read().unwrap().agent.model.clone();
+        // Get or create the session
+        let session = match self.db.get_session_by_key(key)? {
+            Some(s) => s,
+            None => self.db.create_session(key, &model)?,
+        };
+        *self.active_session_key.write().unwrap() = key.to_string();
+        Ok(session)
+    }
+
+    /// Get the active session key.
+    pub fn active_session_key(&self) -> String {
+        self.active_session_key.read().unwrap().clone()
+    }
+
+    /// Delete a session by key.
+    pub fn delete_session(&self, key: &str) -> Result<()> {
+        if key == "main" {
+            return Err(anyhow::anyhow!("Cannot delete the main session"));
+        }
+        let session = self.db.get_session_by_key(key)?
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {key}"))?;
+        self.db.delete_session(session.id)?;
+        // If we deleted the active session, switch back to main
+        if *self.active_session_key.read().unwrap() == key {
+            *self.active_session_key.write().unwrap() = "main".to_string();
+        }
+        Ok(())
+    }
+
+    /// Rename a session.
+    pub fn rename_session(&self, old_key: &str, new_key: &str) -> Result<()> {
+        if old_key == "main" {
+            return Err(anyhow::anyhow!("Cannot rename the main session"));
+        }
+        let session = self.db.get_session_by_key(old_key)?
+            .ok_or_else(|| anyhow::anyhow!("Session not found: {old_key}"))?;
+        self.db.rename_session(session.id, new_key)?;
+        if *self.active_session_key.read().unwrap() == old_key {
+            *self.active_session_key.write().unwrap() = new_key.to_string();
+        }
+        Ok(())
+    }
+
+    /// Get token usage statistics.
+    pub fn get_usage_stats(&self) -> Result<bat_types::usage::UsageStats> {
+        self.db.get_usage_stats()
     }
 
     /// Get all subagent sessions for the main session.
@@ -766,6 +985,28 @@ async fn run_agent_turn(
     info!("Spawned bat-agent (pid: {})", pid);
     audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Agent, "agent_spawn",
         &format!("Agent spawned (pid: {pid}, model: {model})"), Some(&sid), None);
+
+    // Apply OS-native sandbox
+    let sandbox_cfg = {
+        let cfg = gw_config.read().unwrap();
+        sandbox::SandboxConfig {
+            memory_limit_mb: cfg.sandbox.memory_limit_mb as u64,
+            ..Default::default()
+        }
+    };
+    let _sandbox_handle = match sandbox::apply_sandbox(pid, &sandbox_cfg) {
+        Ok(handle) => {
+            audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Agent, "sandbox_applied",
+                &format!("Sandbox applied (pid: {pid}, mem: {}MB)", sandbox_cfg.memory_limit_mb), Some(&sid), None);
+            Some(handle)
+        }
+        Err(e) => {
+            warn!("Failed to apply sandbox: {e}");
+            audit(&db, &event_bus, AuditLevel::Warn, AuditCategory::Agent, "sandbox_failed",
+                &format!("Sandbox failed: {e}"), Some(&sid), None);
+            None
+        }
+    };
 
     // 3. Wait for agent to connect
     let mut pipe = ipc::wait_for_agent(server)

@@ -44,6 +44,9 @@ fn main() {
             // Create gateway
             let gateway = Arc::new(Gateway::new(cfg, db)?);
 
+            // Start channel adapters (Telegram, etc.)
+            gateway.start_channels();
+
             // Subscribe to gateway events and forward to Tauri frontend
             let mut rx = gateway.subscribe_events();
             let app_handle = app.handle().clone();
@@ -111,6 +114,13 @@ fn main() {
             commands::get_audit_logs,
             commands::get_audit_stats,
             commands::get_subagents,
+            commands::list_sessions,
+            commands::create_session,
+            commands::switch_session,
+            commands::delete_session_by_key,
+            commands::rename_session,
+            commands::get_active_session_key,
+            commands::get_usage_stats,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Batchismo");

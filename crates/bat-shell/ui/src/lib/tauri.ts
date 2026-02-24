@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats } from '../types'
 
 export const sendMessage = (content: string): Promise<void> =>
   invoke('send_message', { content })
@@ -58,6 +58,29 @@ export const getObservationSummary = (): Promise<ObservationSummary> =>
 
 export const triggerConsolidation = (): Promise<string> =>
   invoke('trigger_consolidation')
+
+// Sessions
+export const listSessions = (): Promise<SessionMeta[]> =>
+  invoke('list_sessions')
+
+export const createSession = (name: string): Promise<SessionMeta> =>
+  invoke('create_session', { name })
+
+export const switchSession = (key: string): Promise<SessionMeta> =>
+  invoke('switch_session', { key })
+
+export const deleteSessionByKey = (key: string): Promise<void> =>
+  invoke('delete_session_by_key', { key })
+
+export const renameSession = (oldKey: string, newKey: string): Promise<void> =>
+  invoke('rename_session', { oldKey, newKey })
+
+export const getActiveSessionKey = (): Promise<string> =>
+  invoke('get_active_session_key')
+
+// Usage
+export const getUsageStats = (): Promise<UsageStats> =>
+  invoke('get_usage_stats')
 
 // Subagents
 export const getSubagents = (): Promise<SubagentInfo[]> =>

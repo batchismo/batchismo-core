@@ -9,6 +9,8 @@ pub struct BatConfig {
     pub memory: MemoryConfig,
     pub sandbox: SandboxConfig,
     pub paths: Vec<PathPolicy>,
+    #[serde(default)]
+    pub channels: ChannelsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +49,21 @@ pub struct SandboxConfig {
     pub max_concurrent_subagents: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ChannelsConfig {
+    #[serde(default)]
+    pub telegram: Option<TelegramChannelConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramChannelConfig {
+    pub enabled: bool,
+    pub bot_token: String,
+    /// Telegram user IDs allowed to interact with the bot.
+    #[serde(default)]
+    pub allow_from: Vec<i64>,
+}
+
 impl Default for BatConfig {
     fn default() -> Self {
         Self {
@@ -73,6 +90,7 @@ impl Default for BatConfig {
                 max_concurrent_subagents: 5,
             },
             paths: vec![],
+            channels: ChannelsConfig::default(),
         }
     }
 }

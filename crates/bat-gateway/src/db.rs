@@ -9,6 +9,7 @@ use bat_types::audit::{AuditCategory, AuditEntry, AuditFilter, AuditLevel, Audit
 use bat_types::memory::{Observation, ObservationFilter, ObservationKind, ObservationSummary};
 use bat_types::message::Message;
 use bat_types::session::{SessionKind, SessionMeta, SessionStatus, SubagentInfo, SubagentStatus};
+use bat_types::usage::{UsageStats, SessionUsage, ModelUsage, estimate_cost};
 use bat_types::policy::{PathPolicy, AccessLevel};
 
 pub struct Database {
@@ -176,6 +177,96 @@ impl Database {
             return Ok(session);
         }
         self.create_session("main", model)
+    }
+
+    /// List all user-created sessions (excludes subagents).
+    pub fn list_sessions(&self) -> Result<Vec<SessionMeta>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, key, model, status, token_input, token_output, created_at, updated_at
+             FROM sessions WHERE kind = 'main' ORDER BY updated_at DESC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(row_to_session(row))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row??);
+        }
+        Ok(result)
+    }
+
+    /// Delete a session and all its messages.
+    pub fn delete_session(&self, session_id: Uuid) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let id_str = session_id.to_string();
+        conn.execute("DELETE FROM tool_calls WHERE session_id = ?1", params![id_str])?;
+        conn.execute("DELETE FROM messages WHERE session_id = ?1", params![id_str])?;
+        conn.execute("DELETE FROM sessions WHERE id = ?1", params![id_str])?;
+        Ok(())
+    }
+
+    /// Rename a session.
+    pub fn rename_session(&self, session_id: Uuid, new_key: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE sessions SET key = ?1, updated_at = ?2 WHERE id = ?3",
+            params![new_key, Utc::now().to_rfc3339(), session_id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Get token usage statistics across all sessions.
+    pub fn get_usage_stats(&self) -> Result<UsageStats> {
+        let conn = self.conn.lock().unwrap();
+
+        // Per-session usage
+        let mut stmt = conn.prepare(
+            "SELECT s.key, s.model, s.token_input, s.token_output, s.updated_at,
+                    (SELECT COUNT(*) FROM messages WHERE session_id = s.id) as msg_count
+             FROM sessions s WHERE s.kind = 'main' ORDER BY s.updated_at DESC"
+        )?;
+        let sessions: Vec<SessionUsage> = stmt.query_map([], |row| {
+            Ok(SessionUsage {
+                key: row.get(0)?,
+                model: row.get(1)?,
+                token_input: row.get(2)?,
+                token_output: row.get(3)?,
+                last_active: row.get(4)?,
+                message_count: row.get(5)?,
+            })
+        })?.filter_map(|r| r.ok()).collect();
+
+        // Per-model usage
+        let mut model_stmt = conn.prepare(
+            "SELECT model, SUM(token_input), SUM(token_output), COUNT(*)
+             FROM sessions GROUP BY model"
+        )?;
+        let by_model: Vec<ModelUsage> = model_stmt.query_map([], |row| {
+            Ok(ModelUsage {
+                model: row.get(0)?,
+                token_input: row.get::<_, i64>(1)?,
+                token_output: row.get::<_, i64>(2)?,
+                session_count: row.get(3)?,
+            })
+        })?.filter_map(|r| r.ok()).collect();
+
+        // Totals
+        let total_input: i64 = sessions.iter().map(|s| s.token_input).sum();
+        let total_output: i64 = sessions.iter().map(|s| s.token_output).sum();
+
+        // Estimated cost
+        let estimated_cost_usd: f64 = by_model.iter()
+            .map(|m| estimate_cost(&m.model, m.token_input, m.token_output))
+            .sum();
+
+        Ok(UsageStats {
+            total_input,
+            total_output,
+            sessions,
+            by_model,
+            estimated_cost_usd,
+        })
     }
 
     pub fn update_token_usage(&self, session_id: Uuid, input: i64, output: i64) -> Result<()> {
