@@ -412,12 +412,20 @@ impl Gateway {
                 });
             } else if let (Some(user_msg), Some(key)) = (user_msg_for_reflection, api_key_for_reflection) {
                 // Post-turn reflection: check if anything is worth remembering
-                // Get the last assistant message from history
-                if let Ok(updated_history) = session_manager.get_history(session.id) {
-                    if let Some(last_msg) = updated_history.iter().rev().find(|m| m.role == bat_types::message::Role::Assistant) {
-                        if let Err(e) = reflection::maybe_remember(&key, &user_msg, &last_msg.content).await {
-                            warn!("Reflection failed (non-fatal): {e}");
+                info!("Running post-turn reflection for main session");
+                match session_manager.get_history(session.id) {
+                    Ok(updated_history) => {
+                        if let Some(last_msg) = updated_history.iter().rev().find(|m| m.role == bat_types::message::Role::Assistant) {
+                            info!("Reflection: found assistant response ({} chars), calling maybe_remember", last_msg.content.len());
+                            if let Err(e) = reflection::maybe_remember(&key, &user_msg, &last_msg.content).await {
+                                warn!("Reflection failed (non-fatal): {e}");
+                            }
+                        } else {
+                            warn!("Reflection: no assistant message found in history ({} messages total)", updated_history.len());
                         }
+                    }
+                    Err(e) => {
+                        warn!("Reflection: failed to get history: {e}");
                     }
                 }
             }
