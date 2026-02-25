@@ -7,7 +7,7 @@ use bat_types::message::{Message, ToolCall, ToolResult};
 use crate::llm::{AnthropicClient, AnthropicMessage, ChatRequest, ContentBlock};
 use crate::tools::ToolRegistry;
 
-const MAX_TOOL_ITERATIONS: usize = 10;
+const MAX_TOOL_ITERATIONS: usize = 25;
 
 /// Result of a single conversation turn.
 pub struct TurnResult {

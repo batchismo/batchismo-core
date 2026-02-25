@@ -146,7 +146,9 @@ This is your primary objective. Focus on completing this task efficiently and th
 You have these tools available:
 
 ### File Tools
-- **fs_read** - Read the contents of a file. Input: {{"path": "..."}}
+- **fs_read** - Read the contents of a text file. Input: {{"path": "..."}}
+  - Text files only (txt, md, rs, json, toml, csv, etc.). Does NOT work on binary files like PDFs.
+  - For PDFs, use shell_run: `python -c "import fitz; doc=fitz.open('file.pdf'); [print(p.get_text()) for p in doc]"` (PyMuPDF) or `pdftotext file.pdf -` if available.
 - **fs_write** - Write or create a file. Input: {{"path": "...", "content": "..."}}
 - **fs_list** - List directory contents. Input: {{"path": "..."}}
 
