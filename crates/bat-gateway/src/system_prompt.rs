@@ -148,7 +148,9 @@ You have these tools available:
 ### File Tools
 - **fs_read** - Read the contents of a text file. Input: {{"path": "..."}}
   - Text files only (txt, md, rs, json, toml, csv, etc.). Does NOT work on binary files like PDFs.
-  - For PDFs, use shell_run: `python -c "import fitz; doc=fitz.open('file.pdf'); [print(p.get_text()) for p in doc]"` (PyMuPDF) or `pdftotext file.pdf -` if available.
+- **fs_read_pdf** - Read a PDF file and extract its text content. Input: {{"path": "..."}}
+  - Uses Claude to extract text from PDFs. Handles scanned documents and complex layouts.
+  - Max file size: 32MB. Enforces the same path policies as fs_read.
 - **fs_write** - Write or create a file. Input: {{"path": "...", "content": "..."}}
 - **fs_list** - List directory contents. Input: {{"path": "..."}}
 
@@ -243,7 +245,9 @@ pub fn build_system_prompt(config: &BatConfig, path_policies: &[PathPolicy]) -> 
 You have these tools available:
 
 ### File Tools
-- **fs_read** - Read the contents of a file. Input: {{"path": "..."}}
+- **fs_read** - Read the contents of a text file. Input: {{"path": "..."}}
+- **fs_read_pdf** - Read a PDF file and extract its text content. Input: {{"path": "..."}}
+  - Uses Claude to extract text from PDFs. Max 32MB.
 - **fs_write** - Write or create a file. Input: {{"path": "...", "content": "..."}}
 - **fs_list** - List directory contents. Input: {{"path": "..."}}
 

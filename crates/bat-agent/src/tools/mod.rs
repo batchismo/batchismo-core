@@ -1,4 +1,5 @@
 pub mod fs_read;
+pub mod fs_read_pdf;
 pub mod fs_write;
 pub mod fs_list;
 pub mod web_fetch;
@@ -85,7 +86,12 @@ impl ToolRegistry {
             reg.register(Box::new(fs_write::FsWrite::new(policies.clone())));
         }
         if !disabled.contains(&"fs_list".to_string()) {
-            reg.register(Box::new(fs_list::FsList::new(policies)));
+            reg.register(Box::new(fs_list::FsList::new(policies.clone())));
+        }
+        if !disabled.contains(&"fs_read_pdf".to_string()) {
+            if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
+                reg.register(Box::new(fs_read_pdf::FsReadPdf::new(policies, api_key)));
+            }
         }
         if !disabled.contains(&"web_fetch".to_string()) {
             reg.register(Box::new(web_fetch::WebFetch::new()));
