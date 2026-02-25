@@ -236,7 +236,8 @@ impl Gateway {
                         let system_prompt = {
                             let cfg = config.read().unwrap();
                             let policies = db.get_path_policies().unwrap_or_default();
-                            crate::system_prompt::build_system_prompt(&cfg, &policies).unwrap_or_default()
+                            // Telegram sessions are always main/orchestrator sessions
+                            crate::system_prompt::build_orchestrator_prompt(&cfg, &policies).unwrap_or_default()
                         };
                         let path_policies = db.get_path_policies().unwrap_or_default();
 
@@ -251,6 +252,7 @@ impl Gateway {
                                 session.id, cfg_model, system_prompt, history, msg.text,
                                 path_policies, disabled_tools, api_key,
                                 eb, sm, db2, pm, cfg2,
+                                "main".to_string(),  // Telegram sessions are main/orchestrator
                             ).await {
                                 error!("Telegram agent turn failed: {e}");
                             }
@@ -333,8 +335,17 @@ impl Gateway {
 
         let system_prompt = {
             let cfg = self.config.read().unwrap();
-            system_prompt::build_system_prompt(&cfg, &path_policies)
-                .context("Failed to build system prompt")?
+            // Use orchestrator prompt for main sessions, worker prompt for subagents
+            match session.kind {
+                bat_types::session::SessionKind::Main => {
+                    system_prompt::build_orchestrator_prompt(&cfg, &path_policies)
+                        .context("Failed to build orchestrator prompt")?
+                }
+                bat_types::session::SessionKind::Subagent { ref task, .. } => {
+                    system_prompt::build_worker_prompt(&cfg, &path_policies, task)
+                        .context("Failed to build worker prompt")?
+                }
+            }
         };
 
         let event_bus = self.event_bus.clone();
@@ -361,6 +372,17 @@ impl Gateway {
                 content: String::new(), // Signal "thinking started"
             });
 
+            // Determine session kind based on session key
+            let session_kind = if active_key == "main" {
+                "main".to_string()
+            } else {
+                // Check if this is a subagent session
+                match session.kind {
+                    bat_types::session::SessionKind::Main => "main".to_string(),
+                    bat_types::session::SessionKind::Subagent { .. } => "subagent".to_string(),
+                }
+            };
+
             if let Err(e) = run_agent_turn(
                 session.id,
                 model,
@@ -375,6 +397,7 @@ impl Gateway {
                 db,
                 proc_mgr,
                 gw_config,
+                session_kind,
             )
             .await
             {
@@ -624,7 +647,8 @@ impl Gateway {
     pub fn get_system_prompt(&self) -> Result<String> {
         let cfg = self.config.read().unwrap();
         let path_policies = self.db.get_path_policies()?;
-        system_prompt::build_system_prompt(&cfg, &path_policies)
+        // Default to orchestrator prompt for this API
+        system_prompt::build_orchestrator_prompt(&cfg, &path_policies)
     }
 
     // ─── Onboarding ───────────────────────────────────────────────────────
@@ -919,16 +943,15 @@ fn handle_subagent_action(
                     let sub_key = sub_session.key.clone();
                     let sub_key2 = sub_key.clone();
                     let sub_id = sub_session.id;
-                    let sub_prompt = format!(
-                        "You are a subagent running a specific task. Complete the task and provide a clear summary.\n\n\
-                         ## Your Task\n{task}\n\n\
-                         ## Guidelines\n\
-                         - Focus exclusively on the assigned task.\n\
-                         - Use your tools to accomplish the task.\n\
-                         - When done, provide a concise summary.\n\
-                         - You cannot spawn subagents or modify memory files.\n"
-                    );
                     let path_policies = db.get_path_policies().unwrap_or_default();
+                    let sub_prompt = {
+                        let cfg = config.read().unwrap();
+                        crate::system_prompt::build_worker_prompt(&cfg, &path_policies, &task)
+                            .unwrap_or_else(|e| {
+                                tracing::warn!("Failed to build worker prompt: {e}");
+                                format!("You are a subagent. Complete this task: {task}")
+                            })
+                    };
                     let api_key = api_key_resolved.unwrap_or_default();
                     let mut disabled_tools = disabled_tools_base;
                     disabled_tools.push("session_spawn".to_string());
@@ -945,6 +968,7 @@ fn handle_subagent_action(
                             sub_id, model, sub_prompt, vec![], task.clone(),
                             path_policies, disabled_tools, api_key,
                             eb.clone(), sm, db2.clone(), pm, cfg2,
+                            "subagent".to_string(),  // This is a subagent/worker session
                         ).await;
                         match result {
                             Ok(()) => {
@@ -1063,6 +1087,7 @@ async fn run_agent_turn(
     db: Arc<Database>,
     proc_mgr: process_manager::ProcessManager,
     gw_config: Arc<RwLock<BatConfig>>,
+    session_kind: String,  // "main" or "subagent"
 ) -> Result<()> {
     let sid = session_id.to_string();
 
@@ -1120,6 +1145,7 @@ async fn run_agent_turn(
         history,
         path_policies,
         disabled_tools,
+        session_kind,
     })
     .await
     .context("Failed to send Init to agent")?;

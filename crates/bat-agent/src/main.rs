@@ -147,7 +147,7 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
         .await?
         .ok_or_else(|| anyhow::anyhow!("Pipe closed before Init message"))?;
 
-    let (session_id_str, model, system_prompt, history, path_policies, disabled_tools) = match init {
+    let (session_id_str, model, system_prompt, history, path_policies, disabled_tools, session_kind) = match init {
         GatewayToAgent::Init {
             session_id,
             model,
@@ -155,7 +155,8 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
             history,
             path_policies,
             disabled_tools,
-        } => (session_id, model, system_prompt, history, path_policies, disabled_tools),
+            session_kind,
+        } => (session_id, model, system_prompt, history, path_policies, disabled_tools, session_kind),
         other => anyhow::bail!("Expected Init, got: {:?}", other),
     };
 
@@ -196,7 +197,15 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
     let client = llm::AnthropicClient::new(api_key.to_string());
     let (bridge, mut bridge_rx) = gateway_bridge::create_bridge();
     let pending = std::sync::Arc::new(gateway_bridge::BridgePending::new());
-    let registry = tools::ToolRegistry::with_default_tools(path_policies, &disabled_tools, Some(bridge));
+
+    // Choose tool registry based on session kind
+    let registry = if session_kind == "main" {
+        // Orchestrator/main sessions only get session management tools
+        tools::ToolRegistry::with_orchestrator_tools(bridge, &disabled_tools)
+    } else {
+        // Worker/subagent sessions get all action tools
+        tools::ToolRegistry::with_default_tools(path_policies, &disabled_tools, Some(bridge))
+    };
 
     // Step 4: run agent turn in a separate task, streaming text deltas
     let turn_handle = tokio::spawn(async move {

@@ -39,6 +39,24 @@ impl ToolRegistry {
         Self { tools: vec![] }
     }
 
+    /// Create a registry with only orchestrator (session management) tools.
+    pub fn with_orchestrator_tools(bridge: GatewayBridge, disabled: &[String]) -> Self {
+        let mut reg = Self::new();
+
+        // Only include session management tools for orchestrator
+        if !disabled.contains(&"session_spawn".to_string()) {
+            reg.register(Box::new(session_spawn::SessionSpawn::new(bridge.clone())));
+        }
+        if !disabled.contains(&"session_status".to_string()) {
+            reg.register(Box::new(session_status::SessionStatus::new(bridge)));
+        }
+
+        // TODO: Add session_pause, session_resume, session_instruct, session_cancel, session_answer
+        // These will be implemented in Phase C
+
+        reg
+    }
+
     /// Create a registry with all default tools, skipping any in `disabled`.
     pub fn with_default_tools(policies: Vec<PathPolicy>, disabled: &[String], bridge: Option<GatewayBridge>) -> Self {
         let mut reg = Self::new();

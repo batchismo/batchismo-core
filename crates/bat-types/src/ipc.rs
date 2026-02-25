@@ -15,6 +15,8 @@ pub enum GatewayToAgent {
         path_policies: Vec<PathPolicy>,
         #[serde(default)]
         disabled_tools: Vec<String>,
+        #[serde(default)]
+        session_kind: String,  // "main" or "subagent" - used to decide tool registry
     },
     UserMessage {
         content: String,
