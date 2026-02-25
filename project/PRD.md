@@ -1357,4 +1357,235 @@ Local models are less capable than frontier cloud models. The system should help
 
 ---
 
+## 26. Orchestrator Model & Bidirectional Sub-Agents
+
+The main chat session operates as an **orchestrator** — it does not perform work directly. All tasks are delegated to sub-agents. The orchestrator's job is to understand user intent, decompose work, dispatch sub-agents, answer their questions, and manage the flow of information back to the user.
+
+### 26.1 Core Principle: The Orchestrator Doesn't Do Work
+
+When the user makes any request that requires action (file operations, research, code changes, analysis), the orchestrator spawns a sub-agent to handle it. The orchestrator stays responsive at all times — the user can continue chatting, ask questions, start new tasks, or redirect existing ones without waiting for anything to finish.
+
+The only things the orchestrator does inline:
+- Conversation (answering questions from context/memory)
+- Decomposing complex requests into sub-agent tasks
+- Answering sub-agent questions on the user's behalf
+- Managing sub-agent lifecycle (pause, resume, redirect, cancel)
+
+### 26.2 Bidirectional Communication
+
+Sub-agents are no longer fire-and-forget. They can communicate back to the orchestrator mid-turn.
+
+#### 26.2.1 Sub-Agent → Orchestrator: Questions
+
+When a sub-agent encounters ambiguity or needs information, it sends a question:
+
+```
+AgentToGateway::Question {
+    session_id: Uuid,
+    question_id: String,
+    question: String,
+    context: String,        // what the sub-agent is doing / why it needs this
+    blocking: bool,         // true = sub-agent pauses until answer arrives
+}
+```
+
+The gateway routes the question to the parent orchestrator session. The orchestrator:
+
+1. **Tries to answer autonomously** using conversation history, memory, and context
+2. **If confident:** sends the answer directly back to the sub-agent without bothering the user
+3. **If unsure:** presents the question to the user, waits for their response, and relays it
+
+```
+GatewayToAgent::Answer {
+    question_id: String,
+    answer: String,
+    source: AnswerSource,   // Orchestrator | User
+}
+```
+
+#### 26.2.2 Orchestrator → Sub-Agent: Instructions
+
+The orchestrator can send messages to running sub-agents:
+
+```
+GatewayToAgent::Instruction {
+    instruction_id: String,
+    content: String,        // new instructions, clarifications, or "continue"
+}
+```
+
+This enables mid-task course corrections without killing and restarting the sub-agent.
+
+#### 26.2.3 Sub-Agent → Orchestrator: Progress Updates
+
+Sub-agents periodically report what they're doing:
+
+```
+AgentToGateway::Progress {
+    session_id: Uuid,
+    summary: String,        // "Reviewed 7 of 14 files..."
+    percent: Option<f32>,   // optional completion estimate
+}
+```
+
+The orchestrator can surface these to the user or use them to detect stalled work.
+
+### 26.3 Sub-Agent Lifecycle Management
+
+The orchestrator has full control over sub-agent lifecycle via tools:
+
+| Tool | Description |
+|------|-------------|
+| `session_spawn` | Spawn a new sub-agent with a task (exists today) |
+| `session_status` | Check status of all sub-agents (exists today) |
+| `session_pause` | Pause a running sub-agent — it stops after its current step |
+| `session_resume` | Resume a paused sub-agent, optionally with new instructions |
+| `session_instruct` | Send new instructions to a running sub-agent mid-task |
+| `session_cancel` | Cancel a sub-agent and clean up |
+| `session_answer` | Answer a sub-agent's pending question |
+
+### 26.4 Contradiction Detection & Resolution
+
+When the user says something that contradicts active work, the orchestrator must:
+
+1. **Detect the contradiction** — compare user's new input against active sub-agent tasks
+2. **Pause the affected sub-agent(s)** — prevent further work until resolved
+3. **Clarify with the user** — "You asked me to do X, but you're now saying Y. Should I change direction?"
+4. **Resolve** — either resume the sub-agent (original instructions are fine) or send new instructions via `session_instruct`
+
+Example flow:
+```
+User: "Refactor the auth module to use JWT"
+→ Orchestrator spawns sub-agent: "Refactor auth module to JWT"
+
+User (2 minutes later): "Actually, let's use session-based auth instead"
+→ Orchestrator detects contradiction with active sub-agent task
+→ Orchestrator pauses sub-agent
+→ Orchestrator: "I have a sub-agent currently refactoring auth to JWT. 
+   Want me to switch it to session-based auth instead, or keep going with JWT?"
+User: "Switch to session-based"
+→ Orchestrator sends new instructions to sub-agent
+→ Sub-agent resumes with updated task
+```
+
+### 26.5 Gateway Architecture Changes
+
+#### 26.5.1 Parent-Child Session Linking
+
+Each sub-agent session has a `parent_session_id` field linking it to its orchestrator:
+
+```rust
+pub struct SessionInfo {
+    pub session_id: Uuid,
+    pub parent_session_id: Option<Uuid>,  // None for orchestrator sessions
+    pub state: SubagentState,
+    // ...
+}
+```
+
+#### 26.5.2 Message Router
+
+The gateway gains a message router that handles inter-session communication:
+
+- Sub-agent question → routed to parent orchestrator session
+- Orchestrator answer → routed to waiting sub-agent
+- Orchestrator instruction → injected into sub-agent's active turn
+- Progress updates → routed to parent, optionally surfaced in UI
+
+#### 26.5.3 Sub-Agent States
+
+```rust
+pub enum SubagentState {
+    Running,            // actively working
+    WaitingForAnswer,   // blocked on a question, waiting for orchestrator
+    Paused,             // paused by orchestrator
+    Completed,          // finished successfully
+    Failed,             // errored out
+    Cancelled,          // cancelled by orchestrator
+}
+```
+
+#### 26.5.4 Mid-Turn Message Injection
+
+Currently, the gateway can only send messages to an agent at the start of a turn. For bidirectional communication, the gateway needs to inject messages into an agent's active turn. This requires:
+
+- A message queue per active agent session
+- The agent loop periodically checks for incoming messages between LLM calls / tool executions
+- Blocking questions: the agent loop yields and waits for an answer before continuing
+
+### 26.6 Orchestrator System Prompt
+
+The orchestrator uses a fundamentally different system prompt than worker sub-agents:
+
+```
+You are an orchestrator. You manage work — you don't do it yourself.
+
+When the user asks you to do something:
+1. Break it down into clear tasks
+2. Spawn sub-agents for each task using session_spawn
+3. Stay available for the user to chat, ask questions, or redirect
+
+When a sub-agent asks a question:
+1. Try to answer from conversation context and memory
+2. If you're not sure, ask the user
+3. Relay the answer back to the sub-agent
+
+When the user contradicts active work:
+1. Pause the affected sub-agent
+2. Clarify with the user
+3. Resume or redirect the sub-agent
+
+You should NEVER use file, shell, exec, or other action tools directly. 
+Always delegate to sub-agents. Your tools are:
+- session_spawn, session_status, session_pause, session_resume
+- session_instruct, session_cancel, session_answer
+- Memory and conversation tools (for answering questions)
+```
+
+### 26.7 UI Changes
+
+#### 26.7.1 Desktop
+
+- **Status bar**: Shows count of active sub-agents (e.g., "3 tasks running")
+- **Activity Panel**: Real-time sub-agent states, progress bars, question indicators
+- **Chat**: Sub-agent questions appear as special message bubbles with "Answer" action
+- **Chat**: Sub-agent completions appear as collapsible summary cards
+- **Notification**: Badge/sound when a sub-agent needs user input
+
+#### 26.7.2 TUI
+
+- **Status bar**: Active sub-agent count
+- **Activity screen**: Sub-agent list with states, progress, pending questions
+- **Chat**: Sub-agent questions rendered with `[?]` prefix, answerable inline
+- **Hotkey**: Quick-switch to Activity screen (existing Ctrl-based navigation)
+
+### 26.8 Implementation Phases
+
+**Phase A: Orchestrator Prompt + Always-Delegate**
+- Update orchestrator system prompt to always delegate
+- Sub-agents use full tool set; orchestrator only uses session_* tools
+- No bidirectional communication yet — sub-agents are still fire-and-forget
+- This alone gives the user the "always responsive" experience
+
+**Phase B: Bidirectional Communication**
+- Add `Question` / `Answer` / `Progress` IPC message types
+- Implement message router in gateway
+- Add `session_answer` tool to orchestrator
+- Sub-agents can ask questions that bubble up
+- Orchestrator tries to answer, escalates to user if unsure
+
+**Phase C: Lifecycle Management**
+- Add `session_pause` / `session_resume` / `session_instruct` / `session_cancel` tools
+- Implement mid-turn message injection in agent loop
+- Add contradiction detection heuristics to orchestrator prompt
+- Sub-agent state machine (Running → Paused → Running, etc.)
+
+**Phase D: UI Polish**
+- Progress indicators in Activity Panel
+- Question bubbles in chat
+- Completion summary cards
+- Desktop notifications for questions needing user input
+
+---
+
 *This document is a living specification. The agent running this system is expected to read, understand, and propose updates to this document as the system evolves.*
