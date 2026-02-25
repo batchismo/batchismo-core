@@ -14,6 +14,20 @@ export function useChat() {
     getHistory().then(setMessages).catch(console.error)
   }, [])
 
+  // Reload history (e.g. after session switch)
+  const reload = useCallback(async () => {
+    setMessages([])
+    setStreamingText('')
+    setError(null)
+    setAgentStatus('idle')
+    try {
+      const history = await getHistory()
+      setMessages(history)
+    } catch (e) {
+      console.error('Failed to reload history:', e)
+    }
+  }, [])
+
   const handleEvent = useCallback((event: BatEvent) => {
     switch (event.type) {
       case 'TextDelta':
@@ -66,5 +80,5 @@ export function useChat() {
     }
   }, [agentStatus])
 
-  return { messages, streamingText, agentStatus, error, send }
+  return { messages, streamingText, agentStatus, error, send, reload }
 }

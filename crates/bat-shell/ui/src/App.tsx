@@ -15,7 +15,7 @@ import { UsagePanel } from './components/UsagePanel'
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard'
 
 export default function App() {
-  const { messages, streamingText, agentStatus, error, send } = useChat()
+  const { messages, streamingText, agentStatus, error, send, reload } = useChat()
   const [session, setSession] = useState<SessionMeta | null>(null)
   const [activeView, setActiveView] = useState<AppView>('chat')
   const [onboarded, setOnboarded] = useState<boolean | null>(null) // null = loading
@@ -65,8 +65,7 @@ export default function App() {
             <div className="flex items-center gap-2 ml-1">
               <SessionSwitcher onSessionChange={(s) => {
                 setSession(s)
-                // Re-fetch messages when session changes
-                getSession().then(setSession).catch(console.error)
+                reload()
               }} />
               {session && (
                 <span className="text-xs text-zinc-500 font-mono">
