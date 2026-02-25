@@ -98,7 +98,7 @@ export function ChannelsPage() {
                            placeholder-zinc-600 outline-none focus:border-[#39FF14]"
               />
               <p className="text-[10px] text-zinc-600 mt-1">
-                Comma-separated Telegram user IDs. Leave empty to allow anyone (not recommended).
+                Comma-separated Telegram user IDs. Message <a href="https://t.me/userinfobot" className="text-[#39FF14] hover:underline" target="_blank">@userinfobot</a> on Telegram to get your ID. Leave empty to allow anyone (not recommended).
               </p>
             </div>
           </div>
@@ -115,17 +115,22 @@ export function ChannelsPage() {
       </div>
 
       {/* Save */}
-      <button
-        onClick={handleSave}
-        className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-          saved
-            ? 'bg-emerald-600 text-white'
-            : 'bg-[#39FF14] hover:bg-[#2bcc10] text-black'
-        }`}
-      >
-        {saved ? '✓ Saved' : 'Save Changes'}
-      </button>
-      <p className="text-[10px] text-zinc-600">Restart the app after changing channel settings.</p>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 p-2 bg-amber-500/10 border border-amber-500/20 rounded">
+          <span className="text-amber-400 text-sm">⚠️</span>
+          <p className="text-xs text-amber-300">Channel changes require an app restart to take effect.</p>
+        </div>
+        <button
+          onClick={handleSave}
+          className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+            saved
+              ? 'bg-emerald-600 text-white'
+              : 'bg-[#39FF14] hover:bg-[#2bcc10] text-black'
+          }`}
+        >
+          {saved ? '✓ Saved — Restart to apply' : 'Save Changes'}
+        </button>
+      </div>
     </div>
   )
 }
