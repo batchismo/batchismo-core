@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "ui/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run dev --prefix bat-shell/ui",
-    "beforeBuildCommand": "npm run build --prefix bat-shell/ui"
+    "beforeDevCommand": "cargo build -p bat-agent && npm run dev --prefix bat-shell/ui",
+    "beforeBuildCommand": "cargo build -p bat-agent --release && npm run build --prefix bat-shell/ui"
   },
   "app": {
     "windows": [
