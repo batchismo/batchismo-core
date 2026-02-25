@@ -161,45 +161,51 @@ pub fn spawn_agent(pipe_name: &str, api_key: &str) -> Result<tokio::process::Chi
 
 /// Find the bat-agent binary. Checks:
 /// 1. Next to the current executable (dev/release builds)
-/// 2. Tauri resource directory (installed via MSI/NSIS)
+/// 2. Tauri externalBin sidecar (with target-triple suffix, in same dir)
+/// 3. Tauri resource directory (installed via MSI/NSIS)
+/// 4. macOS app bundle Resources
 fn find_agent_binary() -> Result<PathBuf> {
     let exe = std::env::current_exe().context("Cannot determine current exe path")?;
     let dir = exe
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Current exe has no parent directory"))?;
 
-    let names: &[&str] = if cfg!(target_os = "windows") {
-        &["bat-agent.exe"]
+    let (base_name, ext) = if cfg!(target_os = "windows") {
+        ("bat-agent", ".exe")
     } else {
-        &["bat-agent"]
+        ("bat-agent", "")
     };
 
-    for name in names {
-        // 1. Same directory
-        let candidate = dir.join(name);
-        if candidate.exists() {
-            return Ok(candidate);
-        }
+    let target_triple = env!("TARGET_TRIPLE");
 
-        // 2. Tauri resource directory
-        let candidate = dir.join("resources").join(name);
-        if candidate.exists() {
-            return Ok(candidate);
-        }
+    // Build list of candidates to check
+    let mut candidates: Vec<PathBuf> = vec![];
 
-        // 3. macOS app bundle Resources
-        #[cfg(target_os = "macos")]
-        {
-            let candidate = dir.join("../Resources").join(name);
-            if candidate.exists() {
-                return Ok(candidate);
-            }
+    // 1. Same directory (dev builds)
+    candidates.push(dir.join(format!("{base_name}{ext}")));
+
+    // 2. Tauri externalBin sidecar (target-triple suffix, same directory)
+    candidates.push(dir.join(format!("{base_name}-{target_triple}{ext}")));
+
+    // 3. Tauri resource directory
+    candidates.push(dir.join("resources").join(format!("{base_name}{ext}")));
+
+    // 4. macOS app bundle Resources
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(dir.join("../Resources").join(format!("{base_name}{ext}")));
+        candidates.push(dir.join("../Resources").join(format!("{base_name}-{target_triple}{ext}")));
+    }
+
+    for candidate in &candidates {
+        if candidate.exists() {
+            tracing::info!("Found bat-agent at: {}", candidate.display());
+            return Ok(candidate.clone());
         }
     }
 
     anyhow::bail!(
-        "bat-agent binary not found in {} or its resources/ subdirectory. \
-         Build the workspace first with `cargo build`.",
-        dir.display()
+        "bat-agent binary not found. Searched:\n{}\nBuild the workspace first with `cargo build`.",
+        candidates.iter().map(|c| format!("  - {}", c.display())).collect::<Vec<_>>().join("\n")
     )
 }

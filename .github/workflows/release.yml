@@ -92,24 +92,26 @@ jobs:
       - name: Build bat-agent
         run: cargo build -p bat-agent --release --target ${{ matrix.target }}
 
-      # Stage binaries next to tauri.conf.json so Tauri bundles them as resources
+      # Stage binaries as Tauri externalBin sidecars (requires target-triple suffix)
       - name: Stage binaries for bundling (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          Copy-Item "target/${{ matrix.target }}/release/bat-agent.exe" "crates/bat-shell/bat-agent.exe" -Force
-          Copy-Item "target/${{ matrix.target }}/release/batchismo.exe" "crates/bat-shell/batchismo.exe" -Force
+          New-Item -ItemType Directory -Path "crates/bat-shell/binaries" -Force
+          Copy-Item "target/${{ matrix.target }}/release/bat-agent.exe" "crates/bat-shell/binaries/bat-agent-${{ matrix.target }}.exe" -Force
+          Copy-Item "target/${{ matrix.target }}/release/batchismo.exe" "crates/bat-shell/binaries/batchismo-${{ matrix.target }}.exe" -Force
           Write-Host "Staged binaries:"
-          Get-ChildItem "crates/bat-shell/bat-agent.exe","crates/bat-shell/batchismo.exe"
+          Get-ChildItem "crates/bat-shell/binaries/"
 
       - name: Stage binaries for bundling (Unix)
         if: matrix.platform != 'windows-latest'
         run: |
-          cp "target/${{ matrix.target }}/release/bat-agent" "crates/bat-shell/bat-agent"
-          cp "target/${{ matrix.target }}/release/batchismo" "crates/bat-shell/batchismo"
-          chmod +x crates/bat-shell/bat-agent crates/bat-shell/batchismo
+          mkdir -p crates/bat-shell/binaries
+          cp "target/${{ matrix.target }}/release/bat-agent" "crates/bat-shell/binaries/bat-agent-${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/batchismo" "crates/bat-shell/binaries/batchismo-${{ matrix.target }}"
+          chmod +x crates/bat-shell/binaries/*
           echo "Staged binaries:"
-          ls -la crates/bat-shell/bat-agent crates/bat-shell/batchismo
+          ls -la crates/bat-shell/binaries/
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
@@ -119,21 +121,18 @@ jobs:
         run: cargo tauri build --target ${{ matrix.target }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
-          TAURI_CONFIG: '{"bundle":{"resources":["bat-agent.exe","batchismo.exe"]}}'
 
       - name: Build Tauri app (macOS)
         if: startsWith(matrix.platform, 'macos')
         run: cargo tauri build --target ${{ matrix.target }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
-          TAURI_CONFIG: '{"bundle":{"resources":["bat-agent","batchismo"]}}'
 
       - name: Build Tauri app (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: cargo tauri build --target ${{ matrix.target }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
-          TAURI_CONFIG: '{"bundle":{"resources":["bat-agent","batchismo"]}}'
 
       # Upload artifacts per platform
       - name: Upload Windows artifacts
