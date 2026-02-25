@@ -33,3 +33,7 @@ project/
 config.local.toml
 
 cortana-log.md
+
+# Staged binaries for Tauri bundling (CI only)
+crates/bat-shell/bat-agent*
+crates/bat-shell/batchismo*
