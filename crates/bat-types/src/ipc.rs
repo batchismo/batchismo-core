@@ -27,6 +27,16 @@ pub enum GatewayToAgent {
         request_id: String,
         result: ProcessResult,
     },
+    /// Answer to a sub-agent's question.
+    Answer {
+        question_id: String,
+        answer: String,
+    },
+    /// Instruction sent to a running sub-agent.
+    Instruction {
+        instruction_id: String,
+        content: String,
+    },
 }
 
 /// Agent → Gateway
@@ -59,6 +69,18 @@ pub enum AgentToGateway {
     ProcessRequest {
         request_id: String,
         action: ProcessAction,
+    },
+    /// Question from a sub-agent to its orchestrator.
+    Question {
+        question_id: String,
+        question: String,
+        context: String,
+        blocking: bool,  // if true, agent waits for answer before continuing
+    },
+    /// Progress update from a sub-agent.
+    Progress {
+        summary: String,
+        percent: Option<f32>,
     },
 }
 
@@ -100,6 +122,12 @@ pub enum ProcessAction {
     CancelSubagent {
         session_key: String,
     },
+    /// Ask a question to the orchestrator (sub-agent only).
+    AskOrchestrator {
+        question: String,
+        context: String,
+        blocking: bool,
+    },
 }
 
 /// Result of a process management request.
@@ -132,6 +160,10 @@ pub enum ProcessResult {
         subagents: Vec<crate::session::SubagentInfo>,
     },
     SubagentCancelled,
+    /// Answer from the orchestrator.
+    OrchestratorAnswer {
+        answer: String,
+    },
 }
 
 /// Info about a managed process.

@@ -1005,6 +1005,12 @@ fn handle_subagent_action(
             }
         }
         ProcessAction::CancelSubagent { .. } => ProcessResult::SubagentCancelled,
+        ProcessAction::AskOrchestrator { question, context, blocking } => {
+            // For now, return a placeholder answer - this will be enhanced in the full router implementation
+            ProcessResult::OrchestratorAnswer {
+                answer: format!("Received question: '{}' with context: '{}' (blocking: {}). Full routing to be implemented.", question, context, blocking)
+            }
+        }
         _ => ProcessResult::Error { message: "Not a subagent action".into() },
     }
 }
@@ -1067,7 +1073,7 @@ async fn handle_process_request(
         }
         // Subagent actions are handled in the IPC loop directly (not here)
         // because they need access to gateway state that would make this future !Send.
-        ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } => {
+        ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. } => {
             ProcessResult::Error { message: "Subagent actions must be handled by the gateway directly".to_string() }
         }
     }
@@ -1206,7 +1212,7 @@ async fn run_agent_turn(
                         use bat_types::ipc::ProcessAction;
 
                         // Handle subagent actions synchronously, process actions async
-                        let result = if matches!(action, ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. }) {
+                        let result = if matches!(action, ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. }) {
                             handle_subagent_action(action.clone(), session_id, &db, &event_bus, &proc_mgr, &gw_config)
                         } else {
                             handle_process_request(proc_mgr.clone(), action.clone()).await

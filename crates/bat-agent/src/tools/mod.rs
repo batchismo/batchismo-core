@@ -14,6 +14,8 @@ pub mod session_spawn;
 pub mod session_status;
 pub mod clipboard;
 pub mod screenshot;
+pub mod ask_orchestrator;
+pub mod session_answer;
 
 use anyhow::Result;
 use bat_types::message::{ToolCall, ToolResult};
@@ -48,7 +50,10 @@ impl ToolRegistry {
             reg.register(Box::new(session_spawn::SessionSpawn::new(bridge.clone())));
         }
         if !disabled.contains(&"session_status".to_string()) {
-            reg.register(Box::new(session_status::SessionStatus::new(bridge)));
+            reg.register(Box::new(session_status::SessionStatus::new(bridge.clone())));
+        }
+        if !disabled.contains(&"session_answer".to_string()) {
+            reg.register(Box::new(session_answer::SessionAnswer::new(bridge)));
         }
 
         // TODO: Add session_pause, session_resume, session_instruct, session_cancel, session_answer
@@ -108,7 +113,10 @@ impl ToolRegistry {
                 reg.register(Box::new(session_spawn::SessionSpawn::new(bridge.clone())));
             }
             if !disabled.contains(&"session_status".to_string()) {
-                reg.register(Box::new(session_status::SessionStatus::new(bridge)));
+                reg.register(Box::new(session_status::SessionStatus::new(bridge.clone())));
+            }
+            if !disabled.contains(&"ask_orchestrator".to_string()) {
+                reg.register(Box::new(ask_orchestrator::AskOrchestrator::new(bridge)));
             }
         }
         reg
