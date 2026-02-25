@@ -264,6 +264,23 @@ impl App {
             AgentToGateway::ProcessRequest { .. } => {
                 // Process requests are handled by the gateway, not the TUI
             }
+            AgentToGateway::Question { question, .. } => {
+                // Sub-agent question — show in chat
+                let msg = Message::system(
+                    self.messages.first().map(|m| m.session_id).unwrap_or_default(),
+                    format!("❓ Sub-agent question: {question}"),
+                );
+                self.messages.push(msg);
+            }
+            AgentToGateway::Progress { summary, percent, .. } => {
+                // Sub-agent progress — show in chat
+                let pct = percent.map(|p| format!(" ({:.0}%)", p * 100.0)).unwrap_or_default();
+                let msg = Message::system(
+                    self.messages.first().map(|m| m.session_id).unwrap_or_default(),
+                    format!("📊 Progress{pct}: {summary}"),
+                );
+                self.messages.push(msg);
+            }
         }
     }
 

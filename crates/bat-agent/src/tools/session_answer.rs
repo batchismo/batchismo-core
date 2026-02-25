@@ -1,9 +1,9 @@
 use anyhow::Result;
 use serde_json::{Value, json};
 use crate::gateway_bridge::GatewayBridge;
-use bat_types::ipc::{ProcessAction, ProcessResult};
 
 pub struct SessionAnswer {
+    #[allow(dead_code)]
     bridge: GatewayBridge,
 }
 

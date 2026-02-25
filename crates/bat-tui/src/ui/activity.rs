@@ -38,6 +38,8 @@ pub fn render(f: &mut Frame, app: &App) {
             .map(|(i, agent)| {
                 let icon = match agent.status {
                     bat_types::session::SubagentStatus::Running => "⏳",
+                    bat_types::session::SubagentStatus::WaitingForAnswer => "❓",
+                    bat_types::session::SubagentStatus::Paused => "⏸ ",
                     bat_types::session::SubagentStatus::Completed => "✅",
                     bat_types::session::SubagentStatus::Failed => "❌",
                     bat_types::session::SubagentStatus::Cancelled => "⏹ ",
@@ -60,6 +62,8 @@ pub fn render(f: &mut Frame, app: &App) {
         if let Some(agent) = app.subagents.get(app.activity_cursor) {
             let status_color = match agent.status {
                 bat_types::session::SubagentStatus::Running => Color::Blue,
+                bat_types::session::SubagentStatus::WaitingForAnswer => Color::Yellow,
+                bat_types::session::SubagentStatus::Paused => Color::Magenta,
                 bat_types::session::SubagentStatus::Completed => Color::Green,
                 bat_types::session::SubagentStatus::Failed => Color::Red,
                 bat_types::session::SubagentStatus::Cancelled => Color::DarkGray,
