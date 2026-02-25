@@ -44,8 +44,11 @@ fn main() {
             // Create gateway
             let gateway = Arc::new(Gateway::new(cfg, db)?);
 
-            // Start channel adapters (Telegram, etc.)
-            gateway.start_channels();
+            // Start channel adapters (Telegram, etc.) inside the async runtime
+            let gw_channels = Arc::clone(&gateway);
+            tauri::async_runtime::spawn(async move {
+                gw_channels.start_channels();
+            });
 
             // Subscribe to gateway events and forward to Tauri frontend
             let mut rx = gateway.subscribe_events();
