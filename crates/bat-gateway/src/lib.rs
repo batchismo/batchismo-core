@@ -387,6 +387,7 @@ impl Gateway {
             let is_main = session_kind == "main";
             let user_msg_for_reflection = if is_main { Some(content_owned.clone()) } else { None };
             let api_key_for_reflection = if is_main { Some(api_key.clone()) } else { None };
+            let model_for_reflection = if is_main { Some(model.clone()) } else { None };
 
             if let Err(e) = run_agent_turn(
                 session.id,
@@ -410,14 +411,14 @@ impl Gateway {
                 event_bus.send(AgentToGateway::Error {
                     message: format!("Agent error: {e}"),
                 });
-            } else if let (Some(user_msg), Some(key)) = (user_msg_for_reflection, api_key_for_reflection) {
+            } else if let (Some(user_msg), Some(key), Some(mdl)) = (user_msg_for_reflection, api_key_for_reflection, model_for_reflection) {
                 // Post-turn reflection: check if anything is worth remembering
                 info!("Running post-turn reflection for main session");
                 match session_manager.get_history(session.id) {
                     Ok(updated_history) => {
                         if let Some(last_msg) = updated_history.iter().rev().find(|m| m.role == bat_types::message::Role::Assistant) {
                             info!("Reflection: found assistant response ({} chars), calling maybe_remember", last_msg.content.len());
-                            if let Err(e) = reflection::maybe_remember(&key, &user_msg, &last_msg.content).await {
+                            if let Err(e) = reflection::maybe_remember(&key, &mdl, &user_msg, &last_msg.content).await {
                                 warn!("Reflection failed (non-fatal): {e}");
                             }
                         } else {
@@ -891,8 +892,8 @@ impl Gateway {
             let cfg = self.config.read().unwrap();
             let key = cfg.api_keys.anthropic_key()
                 .ok_or_else(|| anyhow::anyhow!("No Anthropic API key configured"))?;
-            // Use a smaller model for consolidation to save costs
-            let model = "claude-haiku-4-5-latest".to_string();
+            // Use the user's configured model for consolidation
+            let model = cfg.agent.model.clone();
             (key, model)
         };
 

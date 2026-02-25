@@ -11,6 +11,7 @@ use crate::memory;
 /// if anything is worth remembering, and if so appends to MEMORY.md.
 pub async fn maybe_remember(
     api_key: &str,
+    model: &str,
     user_message: &str,
     assistant_response: &str,
 ) -> Result<()> {
@@ -55,7 +56,7 @@ If there is NOTHING worth remembering, respond with exactly: NOTHING"#
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&serde_json::json!({
-            "model": "claude-haiku-4-5-latest",
+            "model": model,
             "max_tokens": 256,
             "messages": [{"role": "user", "content": prompt}]
         }))
