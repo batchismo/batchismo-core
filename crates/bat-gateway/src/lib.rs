@@ -1011,6 +1011,21 @@ fn handle_subagent_action(
                 answer: format!("Received question: '{}' with context: '{}' (blocking: {}). Full routing to be implemented.", question, context, blocking)
             }
         }
+        ProcessAction::PauseSubagent { session_key } => {
+            // TODO: Implement actual pause logic when mid-turn message injection is ready
+            tracing::info!("Pausing subagent: {}", session_key);
+            ProcessResult::SubagentPaused
+        }
+        ProcessAction::ResumeSubagent { session_key, instructions } => {
+            // TODO: Implement actual resume logic when mid-turn message injection is ready
+            tracing::info!("Resuming subagent: {} with instructions: {:?}", session_key, instructions);
+            ProcessResult::SubagentResumed
+        }
+        ProcessAction::InstructSubagent { session_key, instruction } => {
+            // TODO: Implement actual instruction sending when mid-turn message injection is ready
+            tracing::info!("Instructing subagent: {} with: {}", session_key, instruction);
+            ProcessResult::SubagentInstructed
+        }
         _ => ProcessResult::Error { message: "Not a subagent action".into() },
     }
 }
@@ -1073,7 +1088,7 @@ async fn handle_process_request(
         }
         // Subagent actions are handled in the IPC loop directly (not here)
         // because they need access to gateway state that would make this future !Send.
-        ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. } => {
+        ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. } | ProcessAction::PauseSubagent { .. } | ProcessAction::ResumeSubagent { .. } | ProcessAction::InstructSubagent { .. } => {
             ProcessResult::Error { message: "Subagent actions must be handled by the gateway directly".to_string() }
         }
     }
@@ -1212,7 +1227,7 @@ async fn run_agent_turn(
                         use bat_types::ipc::ProcessAction;
 
                         // Handle subagent actions synchronously, process actions async
-                        let result = if matches!(action, ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. }) {
+                        let result = if matches!(action, ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. } | ProcessAction::PauseSubagent { .. } | ProcessAction::ResumeSubagent { .. } | ProcessAction::InstructSubagent { .. }) {
                             handle_subagent_action(action.clone(), session_id, &db, &event_bus, &proc_mgr, &gw_config)
                         } else {
                             handle_process_request(proc_mgr.clone(), action.clone()).await

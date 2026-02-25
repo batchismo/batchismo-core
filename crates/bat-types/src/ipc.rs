@@ -128,6 +128,20 @@ pub enum ProcessAction {
         context: String,
         blocking: bool,
     },
+    /// Pause a running sub-agent.
+    PauseSubagent {
+        session_key: String,
+    },
+    /// Resume a paused sub-agent with optional new instructions.
+    ResumeSubagent {
+        session_key: String,
+        instructions: Option<String>,
+    },
+    /// Send new instructions to a running sub-agent.
+    InstructSubagent {
+        session_key: String,
+        instruction: String,
+    },
 }
 
 /// Result of a process management request.
@@ -164,6 +178,12 @@ pub enum ProcessResult {
     OrchestratorAnswer {
         answer: String,
     },
+    /// Sub-agent paused.
+    SubagentPaused,
+    /// Sub-agent resumed.
+    SubagentResumed,
+    /// Instruction sent to sub-agent.
+    SubagentInstructed,
 }
 
 /// Info about a managed process.

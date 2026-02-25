@@ -16,6 +16,10 @@ pub mod clipboard;
 pub mod screenshot;
 pub mod ask_orchestrator;
 pub mod session_answer;
+pub mod session_pause;
+pub mod session_resume;
+pub mod session_instruct;
+pub mod session_cancel;
 
 use anyhow::Result;
 use bat_types::message::{ToolCall, ToolResult};
@@ -53,11 +57,20 @@ impl ToolRegistry {
             reg.register(Box::new(session_status::SessionStatus::new(bridge.clone())));
         }
         if !disabled.contains(&"session_answer".to_string()) {
-            reg.register(Box::new(session_answer::SessionAnswer::new(bridge)));
+            reg.register(Box::new(session_answer::SessionAnswer::new(bridge.clone())));
         }
-
-        // TODO: Add session_pause, session_resume, session_instruct, session_cancel, session_answer
-        // These will be implemented in Phase C
+        if !disabled.contains(&"session_pause".to_string()) {
+            reg.register(Box::new(session_pause::SessionPause::new(bridge.clone())));
+        }
+        if !disabled.contains(&"session_resume".to_string()) {
+            reg.register(Box::new(session_resume::SessionResume::new(bridge.clone())));
+        }
+        if !disabled.contains(&"session_instruct".to_string()) {
+            reg.register(Box::new(session_instruct::SessionInstruct::new(bridge.clone())));
+        }
+        if !disabled.contains(&"session_cancel".to_string()) {
+            reg.register(Box::new(session_cancel::SessionCancel::new(bridge)));
+        }
 
         reg
     }
