@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "ui/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "cargo build -p bat-agent && node crates/bat-shell/scripts/stage-sidecar.mjs dev && npm run dev --prefix crates/bat-shell/ui",
-    "beforeBuildCommand": "npm run build --prefix crates/bat-shell/ui"
+    "beforeDevCommand": "cargo build -p bat-agent && node bat-shell/scripts/stage-sidecar.mjs dev && npm run dev --prefix bat-shell/ui",
+    "beforeBuildCommand": "npm run build --prefix bat-shell/ui"
   },
   "app": {
     "windows": [
