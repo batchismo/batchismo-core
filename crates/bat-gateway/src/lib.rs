@@ -9,6 +9,7 @@ pub mod process_manager;
 pub mod sandbox;
 pub mod session;
 pub mod stt;
+pub mod reflection;
 pub mod system_prompt;
 pub mod tts;
 
@@ -383,6 +384,10 @@ impl Gateway {
                 }
             };
 
+            let is_main = session_kind == "main";
+            let user_msg_for_reflection = if is_main { Some(content_owned.clone()) } else { None };
+            let api_key_for_reflection = if is_main { Some(api_key.clone()) } else { None };
+
             if let Err(e) = run_agent_turn(
                 session.id,
                 model,
@@ -393,7 +398,7 @@ impl Gateway {
                 disabled_tools,
                 api_key,
                 event_bus.clone(),
-                session_manager,
+                session_manager.clone(),
                 db,
                 proc_mgr,
                 gw_config,
@@ -405,6 +410,16 @@ impl Gateway {
                 event_bus.send(AgentToGateway::Error {
                     message: format!("Agent error: {e}"),
                 });
+            } else if let (Some(user_msg), Some(key)) = (user_msg_for_reflection, api_key_for_reflection) {
+                // Post-turn reflection: check if anything is worth remembering
+                // Get the last assistant message from history
+                if let Ok(updated_history) = session_manager.get_history(session.id) {
+                    if let Some(last_msg) = updated_history.iter().rev().find(|m| m.role == bat_types::message::Role::Assistant) {
+                        if let Err(e) = reflection::maybe_remember(&key, &user_msg, &last_msg.content).await {
+                            warn!("Reflection failed (non-fatal): {e}");
+                        }
+                    }
+                }
             }
         });
 
