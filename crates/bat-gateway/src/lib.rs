@@ -869,7 +869,7 @@ impl Gateway {
             let key = cfg.api_keys.anthropic_key()
                 .ok_or_else(|| anyhow::anyhow!("No Anthropic API key configured"))?;
             // Use a smaller model for consolidation to save costs
-            let model = "claude-haiku-4-5-20241022".to_string();
+            let model = "claude-haiku-4-5-latest".to_string();
             (key, model)
         };
 
