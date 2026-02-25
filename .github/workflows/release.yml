@@ -105,8 +105,13 @@ jobs:
         if: matrix.platform != 'windows-latest'
         run: |
           mkdir -p target/release
-          cp "target/${{ matrix.target }}/release/bat-agent" "target/release/bat-agent" || true
-          cp "target/${{ matrix.target }}/release/batchismo" "target/release/batchismo" || true
+          echo "Source binaries:"
+          ls -la "target/${{ matrix.target }}/release/bat-agent" "target/${{ matrix.target }}/release/batchismo"
+          cp "target/${{ matrix.target }}/release/bat-agent" "target/release/bat-agent"
+          cp "target/${{ matrix.target }}/release/batchismo" "target/release/batchismo"
+          chmod +x target/release/bat-agent target/release/batchismo
+          echo "Staged binaries:"
+          ls -la target/release/bat-agent target/release/batchismo
 
       # Build the Tauri app with resource paths injected at build time
       - name: Install Tauri CLI
