@@ -83,8 +83,11 @@ impl GatewayBridge {
             }
         }
 
-        // Block waiting for the response
-        match tokio::runtime::Handle::current().block_on(resp_rx) {
+        // Block waiting for the response.
+        // We use block_in_place because execute() is sync but called from within tokio.
+        match tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(resp_rx)
+        }) {
             Ok(result) => result,
             Err(_) => ProcessResult::Error {
                 message: "Response channel closed".to_string(),
