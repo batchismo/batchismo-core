@@ -100,7 +100,8 @@ pub struct VoiceConfig {
     /// TTS provider: "openai" or "elevenlabs".
     #[serde(default = "default_tts_provider")]
     pub tts_provider: String,
-    /// OpenAI TTS voice name (e.g., "nova", "alloy", "shimmer").
+    /// OpenAI TTS voice name.
+    /// Available voices: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer.
     #[serde(default = "default_openai_voice")]
     pub openai_voice: String,
     /// OpenAI TTS model (e.g., "gpt-4o-mini-tts", "tts-1", "tts-1-hd").
@@ -140,7 +141,7 @@ impl VoiceConfig {
 }
 
 fn default_tts_provider() -> String { "openai".to_string() }
-fn default_openai_voice() -> String { "nova".to_string() }
+fn default_openai_voice() -> String { "alloy".to_string() }
 fn default_openai_tts_model() -> String { "gpt-4o-mini-tts".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

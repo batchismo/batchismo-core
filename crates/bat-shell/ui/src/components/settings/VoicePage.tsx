@@ -9,7 +9,7 @@ export function VoicePage() {
   // Voice state
   const [ttsEnabled, setTtsEnabled] = useState(false)
   const [ttsProvider, setTtsProvider] = useState('openai')
-  const [openaiVoice, setOpenaiVoice] = useState('nova')
+  const [openaiVoice, setOpenaiVoice] = useState('alloy')
   const [openaiTtsModel, setOpenaiTtsModel] = useState('gpt-4o-mini-tts')
   const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState('')
   const [sttEnabled, setSttEnabled] = useState(false)
@@ -31,7 +31,7 @@ export function VoicePage() {
       if (v) {
         setTtsEnabled(v.tts_enabled)
         setTtsProvider(v.tts_provider || 'openai')
-        setOpenaiVoice(v.openai_voice || 'nova')
+        setOpenaiVoice(v.openai_voice || 'alloy')
         setOpenaiTtsModel(v.openai_tts_model || 'gpt-4o-mini-tts')
         setElevenlabsVoiceId(v.elevenlabs_voice_id || '')
         setSttEnabled(v.stt_enabled)
@@ -141,7 +141,7 @@ export function VoicePage() {
                 >
                   <div className="font-medium">OpenAI</div>
                   <div className="text-[10px] mt-0.5 opacity-70">
-                    {hasOpenAIKey ? '6 voices · 3 models' : '🔒 Add key in API Keys'}
+                    {hasOpenAIKey ? '10 voices · 3 models' : '🔒 Add key in API Keys'}
                   </div>
                 </button>
                 <button
@@ -186,10 +186,14 @@ export function VoicePage() {
                     className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-[#39FF14]"
                   >
                     <option value="alloy">Alloy (neutral)</option>
+                    <option value="ash">Ash (conversational)</option>
+                    <option value="ballad">Ballad (warm)</option>
+                    <option value="coral">Coral (friendly)</option>
                     <option value="echo">Echo (male)</option>
                     <option value="fable">Fable (British)</option>
                     <option value="nova">Nova (female)</option>
                     <option value="onyx">Onyx (deep male)</option>
+                    <option value="sage">Sage (calm)</option>
                     <option value="shimmer">Shimmer (expressive)</option>
                   </select>
                 </div>

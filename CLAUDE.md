@@ -106,6 +106,18 @@ Config may store `"anthropic/claude-opus-4-6"`. The `anthropic/` prefix is strip
 6. Update `ui/src/types.ts` if the frontend needs to know about it
 7. Add tests
 
+## Voice / TTS
+
+The gateway handles TTS transparently — when TTS is enabled, agent text responses are synthesized to audio and sent alongside text. The system prompts tell the agent about this so it doesn't claim to be text-only.
+
+- OpenAI TTS: uses configured voice (default "alloy"), opus format
+- ElevenLabs: uses configured voice ID, MP3 → OGG conversion via ffmpeg
+- Voice config is in `VoiceConfig` (`bat-types/src/config.rs`)
+- TTS synthesis is in `bat-gateway/src/tts.rs`
+- Gateway wires it in `lib.rs` after agent response
+
+When a user provides an OpenAI API key, they should be able to select from available OpenAI voices in the Settings UI.
+
 ## What's Not Built Yet
 
 See README.md for the full roadmap. Don't implement these without a spec:
