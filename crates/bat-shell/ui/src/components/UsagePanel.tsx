@@ -30,7 +30,7 @@ export function UsagePanel() {
   const totalTokens = stats.totalInput + stats.totalOutput
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-6">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
@@ -64,10 +64,10 @@ export function UsagePanel() {
                   <span className="text-sm font-medium text-zinc-200">{m.model}</span>
                   <span className="text-xs text-zinc-500">{m.sessionCount} session(s)</span>
                 </div>
-                <div className="w-full bg-zinc-800 rounded-full h-1.5 mb-1.5">
+                <div className="w-full bg-zinc-800 rounded-full h-1.5 mb-1.5 overflow-hidden">
                   <div
-                    className="bg-[#2bcc10] h-1.5 rounded-full transition-all"
-                    style={{ width: `${Math.max(pct, 1)}%` }}
+                    className="bg-[#2bcc10] h-1.5 rounded-full transition-all max-w-full"
+                    style={{ width: `${Math.min(Math.max(pct, 1), 100)}%` }}
                   />
                 </div>
                 <div className="flex justify-between text-xs text-zinc-500">
@@ -83,7 +83,7 @@ export function UsagePanel() {
       {/* By Session */}
       <div>
         <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Usage by Session</h3>
-        <div className="border border-zinc-800 rounded-lg overflow-hidden">
+        <div className="border border-zinc-800 rounded-lg overflow-hidden overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-zinc-900 text-zinc-500 border-b border-zinc-800">
