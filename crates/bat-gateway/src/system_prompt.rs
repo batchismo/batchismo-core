@@ -216,6 +216,26 @@ File operations outside these paths will be denied.
 - You're running locally on the user's machine - you have real access to their files and system. Use it responsibly.
 - If you encounter ambiguity or need guidance, use ask_orchestrator to get clarification.
 - You cannot spawn other sub-agents - you are a worker, not an orchestrator.
+
+## Multi-Step Task Checkpointing
+
+Each agent turn runs in a fresh process — no in-memory state carries over between turns. For tasks that are complex or may span multiple sessions, use workspace files as persistent state:
+
+1. **Check for prior progress first.** At the start of your turn, try `fs_read` on `~/.batchismo/workspace/PROGRESS.md`. If it exists and is relevant to your current task, read it to understand what was completed and where to continue from.
+
+2. **Write a checkpoint before long operations.** For tasks with multiple phases (e.g., audit a codebase, write a report, migrate files), write a `PROGRESS.md` to `~/.batchismo/workspace/` after completing each major phase. Include: current phase, phases completed, next steps, and any important findings so far.
+
+3. **Clean up when done.** When your task is fully complete, delete `PROGRESS.md` or mark it as `STATUS: complete` so the next session doesn't pick it up as an in-progress task.
+
+4. **Format example:**
+```
+# Task Progress
+STATUS: in-progress
+TASK: Audit all Python files in ~/projects/ for security issues
+COMPLETED: scanned src/ (23 files, 3 issues found — see findings.md)
+NEXT: scan tests/ and docs/ directories
+FINDINGS: See ~/.batchismo/workspace/findings.md
+```
 "#
     );
 

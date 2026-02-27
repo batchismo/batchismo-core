@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -8,6 +9,8 @@ use crate::llm::{AnthropicClient, AnthropicMessage, ChatRequest, ContentBlock};
 use crate::tools::ToolRegistry;
 
 const MAX_TOOL_ITERATIONS: usize = 25;
+/// After this many consecutive identical errors, inject a circuit-breaker warning.
+const ERROR_REPEAT_THRESHOLD: usize = 3;
 
 /// Result of a single conversation turn.
 pub struct TurnResult {
@@ -44,6 +47,8 @@ pub async fn run_turn_streaming(
     let mut all_tool_results: Vec<ToolResult> = Vec::new();
     let mut total_input = 0i64;
     let mut total_output = 0i64;
+    // Tracks consecutive error counts per (tool_name, error_prefix) signature.
+    let mut error_counts: HashMap<String, usize> = HashMap::new();
 
     // First iteration uses streaming to deliver text deltas in real time.
     // Subsequent iterations (post-tool-use) use non-streaming.
@@ -96,8 +101,13 @@ pub async fn run_turn_streaming(
             content: serde_json::Value::Array(assistant_content),
         });
 
-        let tool_result_blocks =
-            execute_tools(&response.content, registry, &mut all_tool_calls, &mut all_tool_results);
+        let tool_result_blocks = execute_tools(
+            &response.content,
+            registry,
+            &mut all_tool_calls,
+            &mut all_tool_results,
+            &mut error_counts,
+        );
         messages.push(AnthropicMessage {
             role: "user".to_string(),
             content: serde_json::Value::Array(tool_result_blocks),
@@ -157,6 +167,7 @@ fn execute_tools(
     registry: &ToolRegistry,
     all_calls: &mut Vec<ToolCall>,
     all_results: &mut Vec<ToolResult>,
+    error_counts: &mut HashMap<String, usize>,
 ) -> Vec<serde_json::Value> {
     let mut blocks = Vec::new();
     for (id, name, input) in tool_uses(content) {
@@ -170,6 +181,48 @@ fn execute_tools(
 
         if result.is_error {
             warn!("Tool {} returned error: {}", name, result.content);
+
+            // Build a signature from the tool name and the first 120 chars of the
+            // error message (enough to distinguish different errors, short enough to
+            // avoid spurious mismatches from dynamic content like timestamps).
+            let error_prefix: String = result.content.chars().take(120).collect();
+            let sig = format!("{}:{}", name, error_prefix);
+            let count = error_counts.entry(sig).or_insert(0);
+            *count += 1;
+
+            if *count >= ERROR_REPEAT_THRESHOLD {
+                warn!(
+                    "Circuit breaker: tool '{}' has failed with the same error {} time(s). \
+                     Injecting stuck-agent hint.",
+                    name, count
+                );
+                // Append a synthetic hint into the result content so the LLM sees it.
+                let hint = format!(
+                    "{}\n\n\
+                    ⚠️ [System] You have encountered this exact error {} times in a row. \
+                    Continuing with the same approach is unlikely to succeed. \
+                    Please try a meaningfully different strategy, use a different tool, \
+                    or ask the user for clarification rather than retrying the same call.",
+                    result.content, count
+                );
+                let hint_result = ToolResult {
+                    tool_call_id: result.tool_call_id.clone(),
+                    content: hint.clone(),
+                    is_error: true,
+                };
+                blocks.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": hint,
+                    "is_error": true,
+                }));
+                all_calls.push(call);
+                all_results.push(hint_result);
+                continue;
+            }
+        } else {
+            // Successful call — clear any error streak for this tool's signatures.
+            error_counts.retain(|k, _| !k.starts_with(&format!("{}:", name)));
         }
 
         blocks.push(serde_json::json!({

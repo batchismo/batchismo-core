@@ -57,6 +57,17 @@ pub struct ElevenLabsVoice {
     pub preview_url: Option<String>,
 }
 
+/// Shared state for routing agent questions through the active Telegram channel.
+/// Created once per `start_channels()` call and threaded through `run_agent_turn`.
+struct TelegramState {
+    /// Channel for sending messages out to Telegram.
+    outbound: tokio::sync::mpsc::UnboundedSender<channels::telegram::OutboundMessage>,
+    /// chat_id of the currently active Telegram conversation (0 = none yet).
+    active_chat_id: Arc<std::sync::Mutex<i64>>,
+    /// If a subagent question is pending a Telegram reply, the answer goes here.
+    pending_question: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<String>>>>,
+}
+
 /// The central gateway — owns the database, session state, and event bus.
 /// The Tauri shell holds an `Arc<Gateway>` in `AppState`.
 pub struct Gateway {
@@ -112,12 +123,24 @@ impl Gateway {
                 let proc_mgr = self.process_manager.clone();
                 let outbound = outbound_tx.clone();
 
+                // Shared state for question routing — used by both the inbound loop
+                // and handle_subagent_action when a subagent calls ask_orchestrator.
+                let active_chat_id_shared = Arc::new(std::sync::Mutex::new(0i64));
+                let pending_question_shared: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<String>>>> =
+                    Arc::new(std::sync::Mutex::new(None));
+                let telegram_state = Arc::new(TelegramState {
+                    outbound: outbound_tx.clone(),
+                    active_chat_id: Arc::clone(&active_chat_id_shared),
+                    pending_question: Arc::clone(&pending_question_shared),
+                });
+
                 tokio::spawn(async move {
                     // Subscribe to events for outbound responses
                     let mut event_rx = event_bus.subscribe();
 
-                    // Track which chat_id to respond to
-                    let active_chat_id = std::sync::Arc::new(std::sync::Mutex::new(0i64));
+                    // Track which chat_id to respond to (shared with TelegramState)
+                    let active_chat_id = active_chat_id_shared;
+                    let pending_question = pending_question_shared;
 
                     let chat_id_for_events = active_chat_id.clone();
                     let outbound_for_events = outbound.clone();
@@ -210,6 +233,17 @@ impl Gateway {
                             continue; // Skip empty messages
                         }
 
+                        // If a subagent question is pending, this reply is the answer —
+                        // don't start a new agent turn.
+                        {
+                            let answer_tx = pending_question.lock().unwrap().take();
+                            if let Some(tx) = answer_tx {
+                                info!("Telegram reply routing as answer to pending agent question");
+                                let _ = tx.send(msg.text.clone());
+                                continue;
+                            }
+                        }
+
                         info!("Telegram inbound from user {}: {}", msg.user_id, &msg.text[..msg.text.len().min(50)]);
 
                         // Get the active session and route the message
@@ -247,6 +281,7 @@ impl Gateway {
                         let db2 = Arc::clone(&db);
                         let pm = proc_mgr.clone();
                         let cfg2 = Arc::clone(&config);
+                        let tg_state = Arc::clone(&telegram_state);
 
                         tokio::spawn(async move {
                             if let Err(e) = run_agent_turn(
@@ -254,6 +289,7 @@ impl Gateway {
                                 path_policies, disabled_tools, api_key,
                                 eb, sm, db2, pm, cfg2,
                                 "main".to_string(),  // Telegram sessions are main/orchestrator
+                                Some(tg_state),
                             ).await {
                                 error!("Telegram agent turn failed: {e}");
                             }
@@ -404,6 +440,7 @@ impl Gateway {
                 proc_mgr,
                 gw_config,
                 session_kind,
+                None, // No Telegram state for UI-originated turns
             )
             .await
             {
@@ -943,10 +980,11 @@ fn audit(
 fn handle_subagent_action(
     action: bat_types::ipc::ProcessAction,
     session_id: Uuid,
-    db: &Arc<Database>,
-    event_bus: &EventBus,
-    proc_mgr: &process_manager::ProcessManager,
-    config: &Arc<RwLock<BatConfig>>,
+    db: Arc<Database>,
+    event_bus: EventBus,
+    proc_mgr: process_manager::ProcessManager,
+    config: Arc<RwLock<BatConfig>>,
+    telegram_state: Option<Arc<TelegramState>>,
 ) -> bat_types::ipc::ProcessResult {
     use bat_types::ipc::{ProcessAction, ProcessResult};
     use bat_types::session::SubagentStatus;
@@ -981,10 +1019,11 @@ fn handle_subagent_action(
                     disabled_tools.push("session_spawn".to_string());
 
                     let eb = event_bus.clone();
-                    let db2 = Arc::clone(db);
-                    let sm = Arc::new(session::SessionManager::new(Arc::clone(db), model.clone()));
+                    let db2 = db.clone();
+                    let sm = Arc::new(session::SessionManager::new(db.clone(), model.clone()));
                     let pm = proc_mgr.clone();
-                    let cfg2 = Arc::clone(config);
+                    let cfg2 = config.clone();
+                    let tg_state = telegram_state.clone();
 
                     tokio::spawn(async move {
                         info!("Subagent starting: key={sub_key}, task={}", &task[..task.len().min(60)]);
@@ -993,6 +1032,7 @@ fn handle_subagent_action(
                             path_policies, disabled_tools, api_key,
                             eb.clone(), sm, db2.clone(), pm, cfg2,
                             "subagent".to_string(),  // This is a subagent/worker session
+                            tg_state,
                         ).await;
                         match result {
                             Ok(()) => {
@@ -1030,9 +1070,63 @@ fn handle_subagent_action(
         }
         ProcessAction::CancelSubagent { .. } => ProcessResult::SubagentCancelled,
         ProcessAction::AskOrchestrator { question, context, blocking } => {
-            // For now, return a placeholder answer - this will be enhanced in the full router implementation
+            if let Some(ref ts) = telegram_state {
+                let chat_id = *ts.active_chat_id.lock().unwrap();
+                if chat_id != 0 {
+                    // Send the question to the active Telegram chat
+                    let text = format!(
+                        "❓ *Agent Question*\n\n{question}\n\n_Context: {context}_\n\nPlease reply with your answer.",
+                    );
+                    let _ = ts.outbound.send(channels::telegram::OutboundMessage {
+                        chat_id,
+                        text,
+                        reply_to: None,
+                        voice_data: None,
+                    });
+
+                    if blocking {
+                        // Register as pending and block until Telegram replies (10-min timeout).
+                        // Uses block_in_place since handle_subagent_action is sync.
+                        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel::<String>();
+                        {
+                            let mut pending = ts.pending_question.lock().unwrap();
+                            if pending.is_some() {
+                                warn!("AskOrchestrator: overwriting an existing pending question");
+                            }
+                            *pending = Some(answer_tx);
+                        }
+                        return tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                match tokio::time::timeout(
+                                    std::time::Duration::from_secs(600),
+                                    answer_rx,
+                                )
+                                .await
+                                {
+                                    Ok(Ok(answer)) => {
+                                        info!("AskOrchestrator: received Telegram answer");
+                                        ProcessResult::OrchestratorAnswer { answer }
+                                    }
+                                    _ => {
+                                        warn!("AskOrchestrator: timeout waiting for Telegram reply");
+                                        ProcessResult::OrchestratorAnswer {
+                                            answer: "No answer received within the timeout. Please proceed with your best judgment or ask again.".to_string(),
+                                        }
+                                    }
+                                }
+                            })
+                        });
+                    } else {
+                        // Non-blocking: question sent, return immediately
+                        return ProcessResult::OrchestratorAnswer {
+                            answer: "Question sent to user via Telegram. Continuing without waiting for a reply.".to_string(),
+                        };
+                    }
+                }
+            }
+            // Fallback: no Telegram active — inform the subagent
             ProcessResult::OrchestratorAnswer {
-                answer: format!("Received question: '{}' with context: '{}' (blocking: {}). Full routing to be implemented.", question, context, blocking)
+                answer: "No human channel is currently available. Please proceed with your best judgment, or surface this question in your final response so the user can address it.".to_string(),
             }
         }
         ProcessAction::PauseSubagent { session_key } => {
@@ -1133,6 +1227,7 @@ async fn run_agent_turn(
     proc_mgr: process_manager::ProcessManager,
     gw_config: Arc<RwLock<BatConfig>>,
     session_kind: String,  // "main" or "subagent"
+    telegram_state: Option<Arc<TelegramState>>,
 ) -> Result<()> {
     let sid = session_id.to_string();
 
@@ -1252,7 +1347,7 @@ async fn run_agent_turn(
 
                         // Handle subagent actions synchronously, process actions async
                         let result = if matches!(action, ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. } | ProcessAction::PauseSubagent { .. } | ProcessAction::ResumeSubagent { .. } | ProcessAction::InstructSubagent { .. }) {
-                            handle_subagent_action(action.clone(), session_id, &db, &event_bus, &proc_mgr, &gw_config)
+                            handle_subagent_action(action.clone(), session_id, db.clone(), event_bus.clone(), proc_mgr.clone(), gw_config.clone(), telegram_state.clone())
                         } else {
                             handle_process_request(proc_mgr.clone(), action.clone()).await
                         };
