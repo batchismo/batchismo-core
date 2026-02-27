@@ -1,6 +1,6 @@
 # Batchismo
 
-A locally-installed, OS-native AI agent platform that runs persistently on your machine. Batchismo acts as a personal AI that does real work; executing tasks, managing files, and coordinating parallel subagents. While continuously learning how you work over time.
+A locally-installed, OS-native AI agent platform that runs persistently on your machine. Batchismo uses an **always-delegate orchestrator model** — every user message is routed through an orchestrator that delegates to specialized worker agents. Workers run in isolated processes, can ask questions back, and can be paused, resumed, cancelled, or instructed mid-flight. The result is a personal AI that does real work: executing tasks, managing files, speaking aloud, and learning how you work over time.
 
 > **No Docker. No config files to hand-edit.** Install, connect your API key, point it at your folders, and have a working personal AI agent within minutes.
 
@@ -8,18 +8,16 @@ A locally-installed, OS-native AI agent platform that runs persistently on your 
 
 ## What It Does
 
+- **Orchestrator-driven architecture** — every message goes through an orchestrator that delegates to worker agents with bidirectional communication
 - **Executes real tasks** on your machine within user-defined path boundaries
-- **Learns your patterns** and updates its own behavior files over time (MEMORY.md, PATTERNS.md)
-- **Runs subagents concurrently** while you continue conversing with the main agent
-- **Enforces OS-native process isolation** per agent session (no Docker required)
-- **Provides full audit logging** of every agent action, tool call, and file access
-- **Ships as a single installable app** terminal experience not required (but available)
-
----
-
-## How To Use
-
-Download the installer for your OS and run it. It will guide you through the setup process.
+- **Voice input and output** — TTS (OpenAI with 10 voice choices, ElevenLabs) and STT built in; the agent knows when voice is active
+- **Telegram integration** — connect a Telegram bot as an alternative interface with user allow-listing
+- **Active memory reflection** — automatically updates MEMORY.md after conversations, with periodic consolidation
+- **Learns your patterns** and updates its own behavior files over time
+- **Runs worker agents concurrently** while you continue conversing — workers are visible in the Activity Panel with status and cancel controls
+- **Enforces path policy** at the tool layer for all filesystem access
+- **Full audit logging** of every agent action, tool call, and file access
+- **Ships as a single installable app** — terminal experience not required (but available via `bat-tui`)
 
 ---
 
@@ -33,17 +31,23 @@ Download the installer for your OS and run it. It will guide you through the set
                         │ Tauri IPC
 ┌───────────────────────▼─────────────────────────────┐
 │               Gateway Runtime (Rust)                 │
-│  SessionManager · EventBus · SQLite · Config         │
+│  SessionManager · Orchestrator · EventBus · SQLite   │
+│  TTS/STT · Memory Reflection · Telegram Adapter      │
 └───────────────────────┬─────────────────────────────┘
                         │ Named Pipe (NDJSON)
             ┌───────────┴──────────┐
-            │     bat-agent        │  ← isolated OS process per session
+            │   Worker Agents      │  ← isolated OS process per session
             │  LLM loop · Tools    │
+            │  Bidirectional comms │
             │  Path policy enforced│
             └──────────────────────┘
 ```
 
-All components compile into a single Tauri binary. No external daemon. No separate server to manage.
+The orchestrator receives every user message and delegates to worker agents. Workers can:
+- Ask clarifying questions back to the orchestrator
+- Be paused, resumed, cancelled, or given new instructions mid-flight
+- Run concurrently (configurable limit, default: 5)
+- Post structured summaries back when complete
 
 ---
 
@@ -52,8 +56,8 @@ All components compile into a single Tauri binary. No external daemon. No separa
 | Crate | Type | Purpose |
 |---|---|---|
 | `bat-types` | library | Shared types: `Message`, `SessionMeta`, `PathPolicy`, IPC envelopes |
-| `bat-gateway` | library | Core gateway: session management, SQLite, config, event bus, IPC server |
-| `bat-agent` | binary | Agent process: LLM loop, tool execution, path policy enforcement |
+| `bat-gateway` | library | Core gateway: session management, orchestrator, SQLite, config, event bus, IPC server, TTS/STT, memory reflection, channel adapters |
+| `bat-agent` | binary | Worker agent process: LLM loop, tool execution, path policy enforcement |
 | `bat-shell` | Tauri app | Desktop shell: window, tray, React UI, Tauri commands |
 | `bat-tui` | binary | Terminal UI: ratatui + crossterm, same gateway, keyboard-driven |
 
@@ -64,6 +68,7 @@ All components compile into a single Tauri binary. No external daemon. No separa
 - [Rust](https://rustup.rs/) (stable)
 - [Node.js](https://nodejs.org/) 20+ (for the UI)
 - An [Anthropic API key](https://console.anthropic.com/)
+- Optional: [OpenAI API key](https://platform.openai.com/) for TTS voices
 
 ---
 
@@ -90,97 +95,101 @@ On first launch, Batchismo creates `~/.batchismo/` with a default `config.toml` 
 
 ## Configuration
 
-Config lives at `~/.batchismo/config.toml`. The UI manages it — you rarely need to edit it directly.
-
-```toml
-[agent]
-name = "Aria"
-model = "anthropic/claude-opus-4-6"
-thinking_level = "medium"              # off | low | medium | high
-
-[gateway]
-port = 19000                           # localhost only, never exposed externally
-log_level = "info"
-
-[memory]
-update_mode = "auto"                   # auto | review | manual
-consolidation_schedule = "daily"       # daily | weekly | manual
-max_memory_file_size_kb = 512
-
-[sandbox]
-memory_limit_mb = 512                  # per agent process
-cpu_shares = 512                       # relative weight
-max_concurrent_subagents = 5
-
-[[paths]]
-path = "~/Documents/"
-access = "read-write"
-recursive = true
-description = "Main documents"
-
-[[paths]]
-path = "~/Downloads/"
-access = "read-only"
-recursive = false
-description = "Downloads staging"
-
-[channels.telegram]
-enabled = false
-bot_token = ""                         # stored in keychain, this field is a reference
-
-[channels.discord]
-enabled = false
-token = ""
-```
+Config lives at `~/.batchismo/config.toml`. The Settings UI manages it — you rarely need to edit it directly.
 
 **The API key is never stored in `config.toml`.** Set it via the `ANTHROPIC_API_KEY` environment variable, or enter it through the Settings UI (stored in your OS keychain).
 
----
+### Settings UI Pages
 
-## File and Directory Structure
-
-```
-~/.batchismo/
-├── config.toml                    ← main configuration
-├── Batchismo.db                   ← SQLite: sessions, transcripts, observations
-│
-├── workspace/
-│   ├── IDENTITY.md                ← agent identity and persona
-│   ├── MEMORY.md                  ← learned facts about the user (auto-updated)
-│   ├── PATTERNS.md                ← observed behavioral patterns (auto-updated)
-│   ├── SKILLS.md                  ← skill index and usage notes
-│   ├── TOOLS.md                   ← tool preferences and constraints
-│   │
-│   └── skills/
-│       ├── files/
-│       │   └── SKILL.md
-│       ├── email/
-│       │   └── SKILL.md
-│       └── calendar/
-│           └── SKILL.md
-│
-├── logs/
-│   ├── gateway.log                ← gateway events
-│   ├── audit.log                  ← all agent actions (append-only)
-│   └── agents/
-│       └── <session-key>.log      ← per-session logs
-│
-└── workspace/.history/
-    ├── MEMORY.md.2026-02-19       ← rolling history of MD file changes
-    └── PATTERNS.md.2026-02-19
-```
+| Page | What it configures |
+|---|---|
+| Agent Config | Name, model, thinking level |
+| API Keys | Anthropic, OpenAI keys |
+| Path Policies | Folder access grants (read/write/read-write) |
+| Tools | Toggle individual tools on/off |
+| Voice | TTS provider, voice selection (10 OpenAI voices), STT |
+| Channels | Telegram bot token, allowed user IDs |
+| About | Version info |
 
 ---
 
-## Workspace Files
+## Voice / TTS + STT
 
-The agent's behavior is controlled by human-readable Markdown files in `~/.batchismo/workspace/`:
+Batchismo supports text-to-speech and speech-to-text natively:
+
+- **OpenAI TTS** — 10 voices (alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer), opus format
+- **ElevenLabs TTS** — custom voice IDs, MP3 → OGG conversion via ffmpeg
+- **STT** — speech-to-text for voice input
+
+TTS is handled transparently by the gateway — when enabled, agent text responses are automatically synthesized to audio. The system prompt tells the agent that voice is active so it adjusts its response style accordingly.
+
+Configure voice provider and select voices in **Settings → Voice**.
+
+---
+
+## Tools
+
+### Built-in Tools
+
+| Tool | Description |
+|---|---|
+| `fs_read` | Read file contents |
+| `fs_write` | Write or create files |
+| `fs_list` | List directory contents |
+| `fs_move` | Move or rename a file |
+| `fs_search` | Search for files by name or content |
+| `fs_stat` | Get file metadata |
+| `fs_read_pdf` | Extract text from PDF files (Anthropic-powered) |
+| `web_fetch` | Fetch a URL (HTTP GET) |
+| `web_search` | Search the web via configured search API |
+| `exec_run` | Execute a shell command |
+| `exec_list` | List running processes |
+| `exec_output` | Get output from a running process |
+| `exec_write` | Write to a running process's stdin |
+| `exec_kill` | Kill a running process |
+| `screenshot` | Capture a screenshot |
+| `clipboard` | Read/write clipboard contents |
+| `app_open` | Open an application |
+| `system_info` | Get system information |
+| `shell_run` | Run a shell command |
+| `session_spawn` | Spawn a background worker agent |
+| `session_status` | Check worker agent status |
+| `session_cancel` | Cancel a running worker |
+| `session_pause` | Pause a running worker |
+| `session_resume` | Resume a paused worker |
+| `session_instruct` | Send new instructions to a running worker |
+| `session_answer` | Answer a question from a worker |
+| `ask_orchestrator` | Worker asks the orchestrator a question |
+
+All tools are toggleable from **Settings → Tools**.
+
+---
+
+## Channel Adapters
+
+| Channel | Status |
+|---|---|
+| Built-in WebChat | ✅ Available |
+| Telegram (Bot API) | ✅ Available |
+| Discord | 🔜 Planned |
+
+**Telegram setup:** Configure your bot token and allowed user IDs in **Settings → Channels**. Only users in the allow list can interact with the agent. Use [@userinfobot](https://t.me/userinfobot) to find your Telegram user ID.
+
+---
+
+## Memory System
+
+Batchismo includes an active memory system:
+
+- **Memory reflection** — after orchestrator turns, the agent reflects on what it learned and updates `MEMORY.md` automatically
+- **Memory consolidation** — periodic consolidation of observations into higher-level patterns
+- **Workspace files** — human-readable Markdown files the agent reads at session start:
 
 | File | Purpose |
 |---|---|
 | `IDENTITY.md` | Agent name, role, and core constraints |
-| `MEMORY.md` | Facts learned about you (auto-updated) |
-| `PATTERNS.md` | Higher-level behavioral patterns (auto-updated weekly) |
+| `MEMORY.md` | Facts learned about you (auto-updated via reflection) |
+| `PATTERNS.md` | Higher-level behavioral patterns |
 | `SKILLS.md` | Available skills and usage notes |
 | `TOOLS.md` | Tool usage preferences and constraints |
 
@@ -196,76 +205,7 @@ You can edit these directly. The agent reads them at the start of every session.
 - **read-write** — agent can read, create, and modify files
 - **write-only** — agent can deposit files but not read existing content
 
-Path policy is enforced at two levels: OS-native sandbox (kernel level) and tool-layer validation.
-
----
-
-## Tools
-
-### Built-in Tools
-
-| Tool | Description |
-|---|---|
-| `fs.read` | Read file contents |
-| `fs.write` | Write or create files |
-| `fs.list` | List directory contents |
-| `fs.move` | Move or rename a file (within allowed paths) |
-| `fs.search` | Search for files by name or content |
-| `fs.stat` | Get file metadata |
-| `web.fetch` | Fetch a URL (HTTP GET, no auth forwarding) |
-| `web.search` | Search the web via configured search API |
-| `process.run` | Execute a shell command (disabled by default, opt-in in Settings) |
-| `memory.read` | Read current MEMORY.md content |
-| `memory.propose_update` | Propose a change to MEMORY.md |
-| `session.spawn` | Spawn a background subagent with a task |
-| `session.list` | List active sessions |
-| `session.history` | Read the transcript of a session |
-
-All tools are toggleable from the Settings UI. Skills can also define additional tools via `tools.toml`.
-
----
-
-## Subagents
-
-The main agent can spawn background subagents using `session.spawn`. Subagents:
-
-- Run concurrently in isolated OS processes — the main agent and UI remain fully responsive
-- Inherit (but cannot expand) the parent's path policy
-- Cannot spawn their own subagents
-- Post a structured summary back to the main session when they complete
-- Are visible in the Activity Panel with elapsed time, status, and a cancel button
-
-Maximum concurrent subagents is configurable (default: 5).
-
----
-
-## Channel Adapters
-
-In addition to the built-in WebChat UI, Batchismo can receive messages from external platforms:
-
-| Channel | Status |
-|---|---|
-| Built-in WebChat | Available |
-| Telegram (Bot API) | Phase 2 |
-| Discord | Phase 5 |
-| Slack, WhatsApp, iMessage | Planned (v2) |
-
-Each channel enforces an `allow_from` list — only permitted users can interact with the agent. Unknown senders receive no response.
-
----
-
-## Onboarding
-
-The first-launch experience is a guided wizard — no documentation reading required:
-
-1. **Welcome** — brief explanation of what Batchismo does
-2. **LLM Provider** — choose provider, enter API key (validated immediately, stored in OS keychain)
-3. **Name your agent** — sets `IDENTITY.md` and establishes the relationship
-4. **Define access** — native file picker to select folders; access level set per folder
-5. **Connect a channel** — optional Telegram/Discord setup (can skip)
-6. **First task** — a suggested starter task to confirm everything works
-
-Target: install to first successful agent action in under 5 minutes.
+Path policy is enforced at the tool layer for all filesystem operations.
 
 ---
 
@@ -345,45 +285,17 @@ Windows `canonicalize()` returns paths with a `\\?\` prefix (extended-length pat
 
 ---
 
-## Distribution
-
-Batchismo ships as a single installer per platform:
-
-| Platform | Format |
-|---|---|
-| macOS | `.dmg` (code-signed and notarized) |
-| Windows | `.exe` (NSIS) or `.msi` (code-signed) |
-| Linux | `.AppImage`, `.deb`, `.rpm` |
-
-No internet connection required after install except for LLM API calls. Auto-update is built in via Tauri's updater — updates are signed and apply with one click.
-
----
-
-## Security
-
-- API keys are stored in the OS keychain and never written to disk in plaintext
-- Keys are never passed to agent processes — the gateway injects them into each API request on the agent's behalf
-- Each agent session runs in an isolated OS process:
-  - **Linux:** PID + mount + network namespaces, cgroup v2 limits, seccomp-bpf allowlist
-  - **macOS:** Seatbelt sandbox profile generated per-session from path policy
-  - **Windows:** Job Objects with memory/CPU limits, restricted token for filesystem access
-- Path policy is enforced at both the kernel level and the tool layer
-- Full append-only audit log of every agent action — cannot be disabled or deleted
-- Memory file writes go through a temp file → gateway validation → atomic rename pipeline, with 30-day rolling history kept in `.history/`
-
----
-
 ## Project Status
 
-Batchismo is in active development.
+Batchismo is in active development. Current version: **v0.3.6**
 
 | Phase | Goal | Status |
 |---|---|---|
 | 1 | Core agent loop: chat, fs tools, SQLite, streaming | ✅ Complete |
-| 2 | Installer, onboarding wizard, all platforms, tray | 🔜 Planned |
-| 3 | Memory system: self-updating MEMORY.md, PATTERNS.md | 🔜 Planned |
-| 4 | Subagents, OS-native sandboxing, audit log UI | 🔜 Planned |
-| 5 | Skill system, web tools, metrics dashboard | 🔜 Planned |
+| 2 | Orchestrator model, bidirectional worker agents, Telegram | ✅ Complete |
+| 3 | Memory reflection, consolidation, TTS/STT, voice selection | ✅ Complete |
+| 4 | Installer, onboarding wizard, OS-native sandboxing, audit log UI | 🔜 Planned |
+| 5 | Skill system, Discord, metrics dashboard | 🔜 Planned |
 
 ---
 
