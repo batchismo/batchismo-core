@@ -4,6 +4,14 @@ Windows desktop AI agent. Tauri v2 shell, Rust backend, React frontend. The agen
 
 Phase 1 complete. Core agent loop, streaming chat, 3 filesystem tools, SQLite, desktop shell all working.
 
+## Terminal Compatibility
+
+Batchismo has both a desktop GUI (Tauri/React) and a terminal interface. All features must work in both:
+- Settings/config changes made in the GUI write to `~/.batchismo/config.toml` and workspace MD files
+- The terminal version reads the same config and MD files
+- Any new Settings UI feature should have a corresponding CLI command or config.toml field so terminal users aren't left out
+- Don't build GUI-only features without considering the terminal path
+
 ## Key Directories
 
 ```
