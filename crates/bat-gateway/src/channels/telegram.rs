@@ -193,17 +193,32 @@ impl TelegramAdapter {
         let send_client = client.clone();
         let send_token = bot_token.clone();
         tokio::spawn(async move {
+            info!("Telegram outbound send task started");
             while let Some(msg) = outbound_rx.recv().await {
+                info!("Telegram outbound: received message for chat_id={}, has_voice={}, text_len={}", msg.chat_id, msg.voice_data.is_some(), msg.text.len());
                 if let Some(voice_data) = msg.voice_data {
-                    if let Err(e) = send_voice(&send_client, &send_token, msg.chat_id, &voice_data, msg.reply_to).await {
-                        error!("Telegram send voice error: {e}");
+                    info!("Telegram outbound: sending voice ({} bytes)...", voice_data.len());
+                    match send_voice(&send_client, &send_token, msg.chat_id, &voice_data, msg.reply_to).await {
+                        Ok(_) => info!("Telegram outbound: voice sent successfully"),
+                        Err(e) => {
+                            error!("Telegram send voice error: {e}");
+                            // Fallback: try sending text only
+                            info!("Telegram outbound: falling back to text-only...");
+                            if let Err(e2) = send_message(&send_client, &send_token, msg.chat_id, &msg.text, msg.reply_to).await {
+                                error!("Telegram send text fallback also failed: {e2}");
+                            }
+                        }
                     }
                 } else {
+                    info!("Telegram outbound: sending text...");
                     if let Err(e) = send_message(&send_client, &send_token, msg.chat_id, &msg.text, msg.reply_to).await {
                         error!("Telegram send error: {e}");
+                    } else {
+                        info!("Telegram outbound: text sent successfully");
                     }
                 }
             }
+            warn!("Telegram outbound send task exited — channel closed");
         });
 
         (inbound_rx, outbound_tx)
@@ -303,7 +318,14 @@ async fn send_voice(
         form = form.text("reply_to_message_id", reply_id.to_string());
     }
 
-    client.post(&url).multipart(form).send().await?;
+    let resp = client.post(&url).multipart(form).send().await?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !body.contains("\"ok\":true") && !body.contains("\"ok\": true") {
+        error!("Telegram sendVoice failed: HTTP {status}, body: {body}");
+        return Err(anyhow::anyhow!("sendVoice failed: {body}"));
+    }
+    info!("Telegram sendVoice response: HTTP {status}, body: {}", &body[..body.len().min(200)]);
     Ok(())
 }
 

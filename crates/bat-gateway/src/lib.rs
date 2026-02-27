@@ -20,7 +20,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use bat_types::{
@@ -137,87 +137,9 @@ impl Gateway {
                 });
 
                 tokio::spawn(async move {
-                    // Subscribe to events for outbound responses
-                    let mut event_rx = event_bus.subscribe();
-
                     // Track which chat_id to respond to (shared with TelegramState)
                     let active_chat_id = active_chat_id_shared;
                     let pending_question = pending_question_shared;
-
-                    let chat_id_for_events = active_chat_id.clone();
-                    let outbound_for_events = outbound.clone();
-
-                    // Event forwarding task — send agent responses to Telegram
-                    let config_for_events = Arc::clone(&config);
-                    tokio::spawn(async move {
-                        let mut pending_text = String::new();
-                        loop {
-                            match event_rx.recv().await {
-                                Ok(AgentToGateway::TextDelta { content }) => {
-                                    pending_text.push_str(&content);
-                                }
-                                Ok(AgentToGateway::TurnComplete { ref message }) => {
-                                    let chat_id = *chat_id_for_events.lock().unwrap();
-                                    if chat_id != 0 {
-                                        let text = if !message.content.is_empty() {
-                                            message.content.clone()
-                                        } else {
-                                            pending_text.clone()
-                                        };
-                                        if !text.is_empty() {
-                                            // Try TTS if enabled and API key available
-                                            let (tts_available, voice_cfg, tts_api_key) = {
-                                                let cfg = config_for_events.read().unwrap();
-                                                let available = cfg.voice.tts_available(&cfg.api_keys);
-                                                let vc = cfg.voice.clone();
-                                                let key = match cfg.voice.tts_provider.as_str() {
-                                                    "elevenlabs" => cfg.api_keys.elevenlabs_key().unwrap_or_default(),
-                                                    _ => cfg.api_keys.openai_key().unwrap_or_default(),
-                                                };
-                                                (available, vc, key)
-                                            };
-                                            let voice_data = if tts_available {
-                                                match tts::synthesize(&text, &voice_cfg, &tts_api_key).await {
-                                                    Ok(audio) => Some(audio.data),
-                                                    Err(e) => {
-                                                        warn!("TTS failed: {e}");
-                                                        None
-                                                    }
-                                                }
-                                            } else {
-                                                None
-                                            };
-                                            let _ = outbound_for_events.send(
-                                                channels::telegram::OutboundMessage {
-                                                    chat_id,
-                                                    text,
-                                                    reply_to: None,
-                                                    voice_data,
-                                                },
-                                            );
-                                        }
-                                    }
-                                    pending_text.clear();
-                                }
-                                Ok(AgentToGateway::Error { message }) => {
-                                    let chat_id = *chat_id_for_events.lock().unwrap();
-                                    if chat_id != 0 {
-                                        let _ = outbound_for_events.send(
-                                            channels::telegram::OutboundMessage {
-                                                chat_id,
-                                                text: format!("⚠️ {message}"),
-                                                reply_to: None,
-                                                voice_data: None,
-                                            },
-                                        );
-                                    }
-                                }
-                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                                Err(_) => break,
-                                _ => {}
-                            }
-                        }
-                    });
 
                     // Inbound message routing
                     while let Some(mut msg) = inbound_rx.recv().await {
@@ -292,6 +214,25 @@ impl Gateway {
                             msg.chat_id,
                         );
 
+                        // Create a dedicated mpsc channel for this turn's replies
+                        // so we don't rely on the broadcast EventBus (which can lag and drop).
+                        let (turn_tx, turn_rx) = tokio::sync::mpsc::unbounded_channel::<AgentToGateway>();
+
+                        // Spawn per-turn reply sender
+                        let outbound_for_turn = outbound.clone();
+                        let chat_id_for_turn = *active_chat_id.lock().unwrap();
+                        let config_for_turn = Arc::clone(&config);
+                        tokio::spawn(async move {
+                            handle_telegram_turn_events(
+                                turn_rx,
+                                outbound_for_turn,
+                                chat_id_for_turn,
+                                config_for_turn,
+                            ).await;
+                        });
+
+                        let outbound_for_error = outbound.clone();
+                        let error_chat_id = msg.chat_id;
                         tokio::spawn(async move {
                             let result = run_agent_turn(
                                 session.id, cfg_model, system_prompt, history, msg.text,
@@ -299,11 +240,21 @@ impl Gateway {
                                 eb, sm, db2, pm, cfg2,
                                 "main".to_string(),  // Telegram sessions are main/orchestrator
                                 Some(tg_state),
+                                Some(turn_tx),
                             ).await;
                             // Cancel typing indicator
                             drop(typing_cancel);
                             if let Err(e) = result {
                                 error!("Telegram agent turn failed: {e}");
+                                // Fix 3: send error message back to Telegram
+                                let _ = outbound_for_error.send(
+                                    channels::telegram::OutboundMessage {
+                                        chat_id: error_chat_id,
+                                        text: format!("⚠️ Agent error: {e}"),
+                                        reply_to: None,
+                                        voice_data: None,
+                                    },
+                                );
                             }
                         });
                     }
@@ -453,6 +404,7 @@ impl Gateway {
                 gw_config,
                 session_kind,
                 None, // No Telegram state for UI-originated turns
+                None, // No dedicated Telegram reply channel
             )
             .await
             {
@@ -1055,6 +1007,7 @@ fn handle_subagent_action(
                             eb.clone(), sm, db2.clone(), pm, cfg2,
                             "subagent".to_string(),  // This is a subagent/worker session
                             tg_state,
+                            None, // Subagents don't have dedicated Telegram reply channels
                         ).await;
                         match result {
                             Ok(()) => {
@@ -1234,6 +1187,82 @@ async fn handle_process_request(
     }
 }
 
+/// Handle events from a single agent turn and send replies to Telegram.
+/// Uses a dedicated mpsc channel instead of the broadcast EventBus to avoid lag-related drops.
+async fn handle_telegram_turn_events(
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<AgentToGateway>,
+    outbound: tokio::sync::mpsc::UnboundedSender<channels::telegram::OutboundMessage>,
+    chat_id: i64,
+    config: Arc<RwLock<BatConfig>>,
+) {
+    if chat_id == 0 {
+        return;
+    }
+    let mut pending_text = String::new();
+    debug!("Telegram turn handler: listening (chat_id={chat_id})");
+    while let Some(event) = rx.recv().await {
+        match event {
+            AgentToGateway::TextDelta { content } => {
+                pending_text.push_str(&content);
+            }
+            AgentToGateway::TurnComplete { ref message } => {
+                info!("Telegram turn handler: TurnComplete, content_len={}", message.content.len());
+                let text = if !message.content.is_empty() {
+                    message.content.clone()
+                } else if !pending_text.is_empty() {
+                    pending_text.clone()
+                } else {
+                    // Fix 4: fallback message when agent completes with empty content
+                    "I processed your request but had nothing to say.".to_string()
+                };
+
+                // Try TTS if enabled and API key available
+                let (tts_available, voice_cfg, tts_api_key) = {
+                    let cfg = config.read().unwrap();
+                    let available = cfg.voice.tts_available(&cfg.api_keys);
+                    let vc = cfg.voice.clone();
+                    let key = match cfg.voice.tts_provider.as_str() {
+                        "elevenlabs" => cfg.api_keys.elevenlabs_key().unwrap_or_default(),
+                        _ => cfg.api_keys.openai_key().unwrap_or_default(),
+                    };
+                    (available, vc, key)
+                };
+                let voice_data = if tts_available {
+                    match tts::synthesize(&text, &voice_cfg, &tts_api_key).await {
+                        Ok(audio) => {
+                            info!("Telegram TTS: {} bytes", audio.data.len());
+                            Some(audio.data)
+                        }
+                        Err(e) => {
+                            warn!("Telegram TTS failed: {e}");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                let _ = outbound.send(channels::telegram::OutboundMessage {
+                    chat_id,
+                    text,
+                    reply_to: None,
+                    voice_data,
+                });
+                break;
+            }
+            AgentToGateway::Error { message } => {
+                let _ = outbound.send(channels::telegram::OutboundMessage {
+                    chat_id,
+                    text: format!("⚠️ {message}"),
+                    reply_to: None,
+                    voice_data: None,
+                });
+                break;
+            }
+            _ => {}
+        }
+    }
+}
+
 async fn run_agent_turn(
     session_id: Uuid,
     model: String,
@@ -1250,6 +1279,7 @@ async fn run_agent_turn(
     gw_config: Arc<RwLock<BatConfig>>,
     session_kind: String,  // "main" or "subagent"
     telegram_state: Option<Arc<TelegramState>>,
+    telegram_reply_tx: Option<tokio::sync::mpsc::UnboundedSender<AgentToGateway>>,
 ) -> Result<()> {
     let sid = session_id.to_string();
 
@@ -1392,6 +1422,13 @@ async fn run_agent_turn(
                         session_manager
                             .update_token_usage(session_id, inp, out)
                             .context("Failed to update token usage")?;
+                    }
+                }
+
+                // Forward to the dedicated Telegram reply channel if present
+                if let Some(ref tx) = telegram_reply_tx {
+                    if let Err(e) = tx.send(event.clone()) {
+                        error!("Failed to forward event to Telegram reply channel: {e}");
                     }
                 }
 

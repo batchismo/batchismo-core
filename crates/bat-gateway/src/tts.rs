@@ -14,11 +14,18 @@ pub struct SpeechAudio {
 }
 
 /// Synthesize speech from text using the configured provider.
+/// Applies a 30-second timeout to prevent hanging TTS calls from blocking replies.
 pub async fn synthesize(text: &str, config: &VoiceConfig, api_key: &str) -> Result<SpeechAudio> {
-    match config.tts_provider.as_str() {
-        "elevenlabs" => synthesize_elevenlabs(text, config, api_key).await,
-        _ => synthesize_openai(text, config, api_key).await,
-    }
+    let timeout = std::time::Duration::from_secs(30);
+    let result = match config.tts_provider.as_str() {
+        "elevenlabs" => {
+            tokio::time::timeout(timeout, synthesize_elevenlabs(text, config, api_key)).await
+        }
+        _ => {
+            tokio::time::timeout(timeout, synthesize_openai(text, config, api_key)).await
+        }
+    };
+    result.map_err(|_| anyhow::anyhow!("TTS timed out after 30 seconds"))?
 }
 
 /// OpenAI TTS API.
