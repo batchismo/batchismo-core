@@ -307,6 +307,51 @@ async fn send_voice(
     Ok(())
 }
 
+/// Send a chat action (e.g. "typing") to a Telegram chat.
+/// Failures are logged as warnings and never propagated.
+pub async fn send_chat_action(client: &reqwest::Client, token: &str, chat_id: i64, action: &str) {
+    let url = format!("https://api.telegram.org/bot{token}/sendChatAction");
+    let params = serde_json::json!({
+        "chat_id": chat_id,
+        "action": action,
+    });
+    match client.post(&url).json(&params).send().await {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                warn!("sendChatAction failed: HTTP {}", resp.status());
+            }
+        }
+        Err(e) => {
+            warn!("sendChatAction error: {e}");
+        }
+    }
+}
+
+/// Spawn a background task that sends "typing" every 4 seconds until the
+/// returned [`tokio::sync::oneshot::Sender`] is dropped or signalled.
+pub fn spawn_typing_loop(
+    client: reqwest::Client,
+    token: String,
+    chat_id: i64,
+) -> tokio::sync::oneshot::Sender<()> {
+    let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        // Send immediately, then every 4 seconds
+        send_chat_action(&client, &token, chat_id, "typing").await;
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(4)) => {
+                    send_chat_action(&client, &token, chat_id, "typing").await;
+                }
+                _ = &mut cancel_rx => {
+                    break;
+                }
+            }
+        }
+    });
+    cancel_tx
+}
+
 fn split_message(text: &str, max_len: usize) -> Vec<&str> {
     if text.len() <= max_len {
         return vec![text];

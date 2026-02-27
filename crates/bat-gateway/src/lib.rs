@@ -113,6 +113,7 @@ impl Gateway {
                     stt_enabled: stt_available,
                     stt_api_key,
                 };
+                let bot_token_for_typing = tg_cfg.bot_token.clone();
                 let (mut inbound_rx, outbound_tx) = channels::telegram::TelegramAdapter::start(tg_config);
 
                 // Route inbound Telegram messages to the gateway
@@ -122,6 +123,7 @@ impl Gateway {
                 let config = Arc::clone(&self.config);
                 let proc_mgr = self.process_manager.clone();
                 let outbound = outbound_tx.clone();
+                let typing_client = reqwest::Client::new();
 
                 // Shared state for question routing — used by both the inbound loop
                 // and handle_subagent_action when a subagent calls ask_orchestrator.
@@ -283,14 +285,24 @@ impl Gateway {
                         let cfg2 = Arc::clone(&config);
                         let tg_state = Arc::clone(&telegram_state);
 
+                        // Start typing indicator (repeats every 4s until cancelled)
+                        let typing_cancel = channels::telegram::spawn_typing_loop(
+                            typing_client.clone(),
+                            bot_token_for_typing.clone(),
+                            msg.chat_id,
+                        );
+
                         tokio::spawn(async move {
-                            if let Err(e) = run_agent_turn(
+                            let result = run_agent_turn(
                                 session.id, cfg_model, system_prompt, history, msg.text,
                                 path_policies, disabled_tools, api_key,
                                 eb, sm, db2, pm, cfg2,
                                 "main".to_string(),  // Telegram sessions are main/orchestrator
                                 Some(tg_state),
-                            ).await {
+                            ).await;
+                            // Cancel typing indicator
+                            drop(typing_cancel);
+                            if let Err(e) = result {
                                 error!("Telegram agent turn failed: {e}");
                             }
                         });
