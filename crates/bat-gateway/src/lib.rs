@@ -592,8 +592,18 @@ impl Gateway {
     }
 
     /// Update config in-memory and persist to disk.
+    /// Also writes personality_prompt to IDENTITY.md if set.
     pub fn update_config(&self, new_config: BatConfig) -> Result<()> {
         config::save_config(&new_config)?;
+
+        // Sync personality prompt to IDENTITY.md
+        let identity_path = config::workspace_path().join("IDENTITY.md");
+        if let Some(ref prompt) = new_config.agent.personality_prompt {
+            if !prompt.trim().is_empty() {
+                std::fs::write(&identity_path, prompt)?;
+            }
+        }
+
         *self.config.write().unwrap() = new_config;
         Ok(())
     }

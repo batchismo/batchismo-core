@@ -86,6 +86,7 @@ export interface AgentConfig {
   model: string
   thinking_level: string
   api_key: string | null
+  personality_prompt: string | null
   disabled_tools: string[]
 }
 
@@ -248,4 +249,4 @@ export interface FolderAccess {
   access: string
   recursive: boolean
 }
-export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'channels' | 'voice' | 'about'
+export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'about'

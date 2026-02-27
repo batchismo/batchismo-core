@@ -58,6 +58,9 @@ pub struct AgentConfig {
     /// Kept for backwards compatibility with existing config files.
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Free-text personality prompt injected into the system prompt.
+    #[serde(default)]
+    pub personality_prompt: Option<String>,
     /// Tools disabled by the user via the Settings panel.
     #[serde(default)]
     pub disabled_tools: Vec<String>,
@@ -161,6 +164,7 @@ impl Default for BatConfig {
                 model: "claude-sonnet-4-6".to_string(),
                 thinking_level: "medium".to_string(),
                 api_key: None,
+                personality_prompt: None,
                 disabled_tools: vec![],
                 onboarding_complete: false,
             },
