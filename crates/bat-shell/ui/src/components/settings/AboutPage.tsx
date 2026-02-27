@@ -24,7 +24,7 @@ export function AboutPage() {
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="space-y-1">
             <p className="text-zinc-500 text-xs uppercase tracking-wider">Version</p>
-            <p className="text-zinc-200">0.1.0</p>
+            <p className="text-zinc-200">0.3.10</p>
           </div>
           <div className="space-y-1">
             <p className="text-zinc-500 text-xs uppercase tracking-wider">Platform</p>
