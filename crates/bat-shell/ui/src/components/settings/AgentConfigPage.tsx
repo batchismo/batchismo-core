@@ -3,15 +3,15 @@ import type { BatConfig } from '../../types'
 import { getConfig, updateConfig, getSystemPrompt } from '../../lib/tauri'
 
 const ANTHROPIC_MODELS = [
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Fast & capable' },
-  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', desc: 'Most powerful' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Fastest & cheapest' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Fast & capable', provider: 'Anthropic' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', desc: 'Most powerful', provider: 'Anthropic' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Fastest & cheapest', provider: 'Anthropic' },
 ]
 
 const OPENAI_MODELS = [
-  { id: 'gpt-4o', label: 'GPT-4o', desc: 'Flagship multimodal' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', desc: 'Fast & affordable' },
-  { id: 'o3-mini', label: 'o3-mini', desc: 'Reasoning model' },
+  { id: 'gpt-4o', label: 'GPT-4o', desc: 'Flagship multimodal', provider: 'OpenAI' },
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', desc: 'Fast & affordable', provider: 'OpenAI' },
+  { id: 'o3-mini', label: 'o3-mini', desc: 'Reasoning model', provider: 'OpenAI' },
 ]
 
 export function AgentConfigPage() {
@@ -69,6 +69,28 @@ export function AgentConfigPage() {
     if (!config) return
     setConfig({ ...config, agent: { ...config.agent, ...patch } })
   }
+
+  const toggleModel = (modelId: string) => {
+    if (!config) return
+    const enabled = config.agent.enabled_models ?? []
+    // Default model must always stay enabled
+    if (modelId === config.agent.model && enabled.includes(modelId)) return
+    const next = enabled.includes(modelId)
+      ? enabled.filter(id => id !== modelId)
+      : [...enabled, modelId]
+    updateAgent({ enabled_models: next })
+  }
+
+  const isModelEnabled = (modelId: string) => {
+    const enabled = config?.agent.enabled_models ?? []
+    return enabled.includes(modelId) || modelId === config?.agent.model
+  }
+
+  // All available models based on configured keys
+  const availableModels = [
+    ...(hasAnthropicKey ? ANTHROPIC_MODELS : []),
+    ...(hasOpenAIKey ? OPENAI_MODELS : []),
+  ]
 
   if (loading) {
     return <div className="text-zinc-500 text-sm text-center py-8">Loading…</div>
@@ -135,7 +157,13 @@ export function AgentConfigPage() {
                   <button
                     key={m.id}
                     type="button"
-                    onClick={() => updateAgent({ model: m.id })}
+                    onClick={() => {
+                      const enabled = config.agent.enabled_models ?? []
+                      updateAgent({
+                        model: m.id,
+                        enabled_models: enabled.includes(m.id) ? enabled : [...enabled, m.id],
+                      })
+                    }}
                     className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${
                       config.agent.model === m.id
                         ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]'
@@ -159,7 +187,13 @@ export function AgentConfigPage() {
                   <button
                     key={m.id}
                     type="button"
-                    onClick={() => updateAgent({ model: m.id })}
+                    onClick={() => {
+                      const enabled = config.agent.enabled_models ?? []
+                      updateAgent({
+                        model: m.id,
+                        enabled_models: enabled.includes(m.id) ? enabled : [...enabled, m.id],
+                      })
+                    }}
                     className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${
                       config.agent.model === m.id
                         ? 'border-emerald-500 bg-emerald-900/40 text-emerald-300'
@@ -184,6 +218,63 @@ export function AgentConfigPage() {
             Or type any model ID directly. Models from providers without a configured key won't work.
           </p>
         </div>
+
+        {/* Model Registry */}
+        {availableModels.length > 0 && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-zinc-300">Model Registry</label>
+            <p className="text-xs text-zinc-500">
+              Enable models for multi-LLM routing. The default model is always enabled.
+            </p>
+            <div className="space-y-1.5">
+              {availableModels.map(m => {
+                const isDefault = config.agent.model === m.id
+                const enabled = isModelEnabled(m.id)
+                return (
+                  <div
+                    key={m.id}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-colors ${
+                      enabled
+                        ? 'border-zinc-600 bg-zinc-800/80'
+                        : 'border-zinc-700/50 bg-zinc-900/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded ${
+                        m.provider === 'Anthropic'
+                          ? 'bg-[#39FF14]/10 text-[#39FF14]/70'
+                          : 'bg-emerald-900/40 text-emerald-400/70'
+                      }`}>
+                        {m.provider}
+                      </span>
+                      <div className="min-w-0">
+                        <span className="text-sm text-white font-mono">{m.label}</span>
+                        <span className="text-xs text-zinc-500 ml-2">{m.desc}</span>
+                        {isDefault && (
+                          <span className="text-[10px] text-[#39FF14] ml-2 uppercase tracking-wider font-medium">default</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleModel(m.id)}
+                      disabled={isDefault}
+                      className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
+                        enabled
+                          ? 'bg-[#39FF14]/60'
+                          : 'bg-zinc-600'
+                      } ${isDefault ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        enabled ? 'translate-x-4' : 'translate-x-0'
+                      }`} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Workspace dir (read-only info) */}
         <div className="space-y-1.5">

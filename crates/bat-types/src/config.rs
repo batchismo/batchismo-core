@@ -67,6 +67,9 @@ pub struct AgentConfig {
     /// Whether the onboarding wizard has been completed.
     #[serde(default)]
     pub onboarding_complete: bool,
+    /// Model IDs enabled for multi-LLM routing (v0.4.0).
+    #[serde(default)]
+    pub enabled_models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +170,7 @@ impl Default for BatConfig {
                 personality_prompt: None,
                 disabled_tools: vec![],
                 onboarding_complete: false,
+                enabled_models: vec![],
             },
             gateway: GatewayConfig {
                 port: 19000,

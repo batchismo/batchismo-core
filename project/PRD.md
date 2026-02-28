@@ -1120,13 +1120,48 @@ Available models by provider:
 - **Anthropic:** claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001
 - **OpenAI:** gpt-4o, gpt-4o-mini, gpt-4-turbo, o3-mini (when key present)
 
-### 23.5 Multi-LLM Routing (v0.4.0)
+### 23.5 Multi-LLM Routing & Model Registry
 
-Future: intelligent routing between providers based on task type:
-- User-defined preferences ("Use Claude for deep reasoning, GPT for quick tasks")
-- Automatic failover if one provider is down
-- Cost-aware routing (prefer cheaper model when task is simple)
-- Requires building an OpenAI chat completions client alongside the existing Anthropic client
+#### 23.5.1 Model Registry
+
+- Users can enable multiple models from any configured provider
+- Each enabled model has: id, provider, display name, enabled/disabled toggle
+- Models are stored in config as an array: `agent.models[]`
+- One model is marked as `default` — used when the router has no strong preference
+- The existing `agent.model` field becomes the default; `agent.models[]` is the full registry
+
+#### 23.5.2 Request Classification
+
+- Lightweight classifier runs before routing (can be rule-based initially, ML later)
+- Classifies by: complexity (simple/moderate/complex), domain (code, creative, analytical, conversational), required capabilities (tool use, long context, vision, reasoning)
+- Classification is fast and cheap — doesn't call an LLM
+
+#### 23.5.3 Routing Strategies
+
+- **Cost-optimized**: Route simple requests to cheapest capable model
+- **Quality-optimized**: Route to most capable model regardless of cost
+- **Balanced** (default): Score models on cost × capability fit
+- **User-defined rules**: "Use Claude for code, GPT for quick questions"
+- **Failover**: If primary model fails/is down, automatically try next best
+
+#### 23.5.4 Multi-Model Fan-Out
+
+- For complex requests, router can send to multiple models simultaneously
+- Orchestrator compares responses and synthesizes best answer
+- Cost governor can cap fan-out based on budget
+
+#### 23.5.5 Cost Governor
+
+- Per-day and per-session budget limits (soft warnings + hard caps)
+- When approaching limits, router downgrades to cheaper models
+- Usage dashboard shows routing decisions and cost impact
+
+#### 23.5.6 Implementation Phases
+
+- Phase 1 (v0.3.x): Multi-model registry in Settings, per-model usage cards ✅
+- Phase 2 (v0.4.0): Request classifier + basic cost/quality routing
+- Phase 3 (v0.4.x): Fan-out, user-defined rules, cost governor
+- Phase 4 (v0.5.0): Learning router — adapts based on user feedback and response quality
 
 ### 23.6 Onboarding Integration
 

@@ -88,6 +88,7 @@ export interface AgentConfig {
   api_key: string | null
   personality_prompt: string | null
   disabled_tools: string[]
+  enabled_models: string[]
 }
 
 export interface TelegramChannelConfig {
