@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::message::{Message, ToolCall, ToolResult};
+use crate::message::{ImageAttachment, Message, ToolCall, ToolResult};
 use crate::policy::PathPolicy;
 
 /// Gateway → Agent
@@ -20,6 +20,8 @@ pub enum GatewayToAgent {
     },
     UserMessage {
         content: String,
+        #[serde(default)]
+        images: Vec<ImageAttachment>,
     },
     Cancel,
     /// Response to a process management request from the agent.

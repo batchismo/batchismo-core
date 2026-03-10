@@ -110,6 +110,9 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);"
         )?;
 
+        // Migration: add images_json column to messages (safe if it already exists)
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN images_json TEXT NOT NULL DEFAULT '[]'", []);
+
         // Migration: add subagent columns to sessions (safe if they already exist)
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN parent_id TEXT", []);
@@ -285,9 +288,10 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let tool_calls_json = serde_json::to_string(&msg.tool_calls)?;
         let tool_results_json = serde_json::to_string(&msg.tool_results)?;
+        let images_json = serde_json::to_string(&msg.images)?;
         conn.execute(
-            "INSERT INTO messages (id, session_id, role, content, tool_calls_json, tool_results_json, token_input, token_output, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO messages (id, session_id, role, content, tool_calls_json, tool_results_json, images_json, token_input, token_output, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 msg.id.to_string(),
                 msg.session_id.to_string(),
@@ -295,6 +299,7 @@ impl Database {
                 msg.content,
                 tool_calls_json,
                 tool_results_json,
+                images_json,
                 msg.token_input,
                 msg.token_output,
                 msg.created_at.to_rfc3339(),
@@ -306,7 +311,7 @@ impl Database {
     pub fn get_history(&self, session_id: Uuid) -> Result<Vec<Message>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, role, content, tool_calls_json, tool_results_json, token_input, token_output, created_at
+            "SELECT id, session_id, role, content, tool_calls_json, tool_results_json, token_input, token_output, created_at, images_json
              FROM messages WHERE session_id = ?1 ORDER BY created_at ASC"
         )?;
         let rows = stmt.query_map(params![session_id.to_string()], |row| {
@@ -320,6 +325,7 @@ impl Database {
                 token_input: row.get(6)?,
                 token_output: row.get(7)?,
                 created_at: row.get(8)?,
+                images_json: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "[]".to_string()),
             })
         })?;
         let mut messages = Vec::new();
@@ -330,6 +336,7 @@ impl Database {
                 session_id: r.session_id.parse().context("invalid session id")?,
                 role: r.role.parse().context("invalid role")?,
                 content: r.content,
+                images: serde_json::from_str(&r.images_json)?,
                 tool_calls: serde_json::from_str(&r.tool_calls_json)?,
                 tool_results: serde_json::from_str(&r.tool_results_json)?,
                 token_input: r.token_input,
@@ -711,6 +718,7 @@ struct MessageRow {
     content: String,
     tool_calls_json: String,
     tool_results_json: String,
+    images_json: String,
     token_input: Option<i64>,
     token_output: Option<i64>,
     created_at: String,
@@ -875,6 +883,30 @@ mod tests {
         assert_eq!(history[0].content, "Hello");
         assert_eq!(history[1].role, Role::Assistant);
         assert_eq!(history[1].content, "Hi there!");
+    }
+
+    #[test]
+    fn test_message_with_images_roundtrip() {
+        use bat_types::message::ImageAttachment;
+        let db = Database::open_in_memory().unwrap();
+        let session = db.create_session("test", "claude").unwrap();
+
+        let msg = Message::user_with_images(
+            session.id,
+            "What's in this image?",
+            vec![ImageAttachment {
+                data: "iVBORw0KGgo=".to_string(), // fake base64
+                media_type: "image/png".to_string(),
+            }],
+        );
+        db.append_message(&msg).unwrap();
+
+        let history = db.get_history(session.id).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].images.len(), 1);
+        assert_eq!(history[0].images[0].media_type, "image/png");
+        assert_eq!(history[0].images[0].data, "iVBORw0KGgo=");
+        assert_eq!(history[0].content, "What's in this image?");
     }
 
     #[test]

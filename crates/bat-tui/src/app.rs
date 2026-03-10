@@ -299,7 +299,7 @@ impl App {
         self.scroll_offset = 0;
 
         // Send to gateway (spawns agent in background)
-        self.gateway.send_user_message(&content).await?;
+        self.gateway.send_user_message(&content, vec![]).await?;
         Ok(())
     }
 

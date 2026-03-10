@@ -3,6 +3,7 @@ pub mod fs_read_pdf;
 pub mod fs_write;
 pub mod fs_list;
 pub mod web_fetch;
+pub mod web_search;
 pub mod shell_run;
 pub mod exec_run;
 pub mod exec_output;
@@ -95,6 +96,11 @@ impl ToolRegistry {
         }
         if !disabled.contains(&"web_fetch".to_string()) {
             reg.register(Box::new(web_fetch::WebFetch::new()));
+        }
+        if !disabled.contains(&"web_search".to_string()) {
+            if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
+                reg.register(Box::new(web_search::WebSearch::new(api_key)));
+            }
         }
         if !disabled.contains(&"shell_run".to_string()) {
             reg.register(Box::new(shell_run::ShellRun::new()));

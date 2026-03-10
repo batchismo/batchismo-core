@@ -21,6 +21,19 @@ export function MessageBubble({ message }: Props) {
             })}
           </div>
         )}
+        {/* Image attachments */}
+        {message.images && message.images.length > 0 && (
+          <div className="flex gap-2 mb-2 flex-wrap">
+            {message.images.map((img, i) => (
+              <img
+                key={i}
+                src={`data:${img.mediaType};base64,${img.data}`}
+                alt="attached image"
+                className="max-h-48 max-w-64 rounded-lg border border-zinc-600 object-contain"
+              />
+            ))}
+          </div>
+        )}
         {/* Message content */}
         {message.content && (
           <div

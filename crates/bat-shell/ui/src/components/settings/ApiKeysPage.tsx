@@ -23,7 +23,7 @@ const KEYS: KeyField[] = [
   {
     id: 'openai',
     label: 'OpenAI',
-    description: 'Unlocks: GPT chat models, voice responses (TTS), speech-to-text (Whisper)',
+    description: 'Unlocks: Web search, GPT chat models, voice responses (TTS), speech-to-text (Whisper)',
     placeholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
     helpLabel: 'platform.openai.com',

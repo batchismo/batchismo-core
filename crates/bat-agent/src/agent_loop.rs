@@ -4,7 +4,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use bat_types::message::{Message, ToolCall, ToolResult};
+use bat_types::message::{ImageAttachment, Message, ToolCall, ToolResult};
 use crate::llm::{AnthropicClient, AnthropicMessage, ChatRequest, ContentBlock};
 use crate::tools::ToolRegistry;
 
@@ -33,13 +33,14 @@ pub async fn run_turn_streaming(
     system_prompt: &str,
     history: &[Message],
     user_content: &str,
+    user_images: &[ImageAttachment],
     _session_id: Uuid,
     text_tx: Sender<String>,
 ) -> Result<TurnResult> {
     let mut messages = history_to_anthropic(history);
     messages.push(AnthropicMessage {
         role: "user".to_string(),
-        content: serde_json::Value::String(user_content.to_string()),
+        content: build_user_content(user_content, user_images),
     });
 
     let tool_defs = registry.definitions();
@@ -137,7 +138,7 @@ pub async fn run_turn(
 ) -> Result<TurnResult> {
     let (tx, _rx) = tokio::sync::mpsc::channel(128);
     run_turn_streaming(
-        client, registry, model, system_prompt, history, user_content, session_id, tx,
+        client, registry, model, system_prompt, history, user_content, &[], session_id, tx,
     )
     .await
 }
@@ -248,6 +249,33 @@ fn tool_uses(content: &[ContentBlock]) -> Vec<(&str, &str, &serde_json::Value)> 
         .collect()
 }
 
+/// Build the Anthropic `content` value for a user message.
+/// If there are no images, returns a simple string. Otherwise returns a content
+/// array with image blocks followed by a text block (Anthropic vision format).
+fn build_user_content(text: &str, images: &[ImageAttachment]) -> serde_json::Value {
+    if images.is_empty() {
+        return serde_json::Value::String(text.to_string());
+    }
+    let mut parts: Vec<serde_json::Value> = Vec::new();
+    for img in images {
+        parts.push(serde_json::json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": img.media_type,
+                "data": img.data,
+            }
+        }));
+    }
+    if !text.is_empty() {
+        parts.push(serde_json::json!({
+            "type": "text",
+            "text": text,
+        }));
+    }
+    serde_json::Value::Array(parts)
+}
+
 fn history_to_anthropic(history: &[Message]) -> Vec<AnthropicMessage> {
     history
         .iter()
@@ -260,8 +288,67 @@ fn history_to_anthropic(history: &[Message]) -> Vec<AnthropicMessage> {
             };
             AnthropicMessage {
                 role: role.to_string(),
-                content: serde_json::Value::String(m.content.clone()),
+                content: build_user_content(&m.content, &m.images),
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_user_content_text_only() {
+        let result = build_user_content("hello", &[]);
+        assert_eq!(result, serde_json::Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_build_user_content_with_image() {
+        let images = vec![ImageAttachment {
+            data: "abc123".to_string(),
+            media_type: "image/png".to_string(),
+        }];
+        let result = build_user_content("describe this", &images);
+        let arr = result.as_array().expect("should be array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["type"], "image");
+        assert_eq!(arr[0]["source"]["type"], "base64");
+        assert_eq!(arr[0]["source"]["media_type"], "image/png");
+        assert_eq!(arr[0]["source"]["data"], "abc123");
+        assert_eq!(arr[1]["type"], "text");
+        assert_eq!(arr[1]["text"], "describe this");
+    }
+
+    #[test]
+    fn test_build_user_content_image_no_text() {
+        let images = vec![ImageAttachment {
+            data: "abc".to_string(),
+            media_type: "image/jpeg".to_string(),
+        }];
+        let result = build_user_content("", &images);
+        let arr = result.as_array().expect("should be array");
+        assert_eq!(arr.len(), 1); // just the image, no text block
+        assert_eq!(arr[0]["type"], "image");
+    }
+
+    #[test]
+    fn test_history_to_anthropic_with_images() {
+        let session_id = uuid::Uuid::new_v4();
+        let msg = Message::user_with_images(
+            session_id,
+            "what is this?",
+            vec![ImageAttachment {
+                data: "test".to_string(),
+                media_type: "image/webp".to_string(),
+            }],
+        );
+        let result = history_to_anthropic(&[msg]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].role, "user");
+        let content = result[0].content.as_array().expect("should be array");
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "image");
+    }
 }

@@ -2,12 +2,24 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// An image attached to a message, stored as base64-encoded data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageAttachment {
+    /// Base64-encoded image data (no data-URL prefix).
+    pub data: String,
+    /// MIME type, e.g. "image/png", "image/jpeg", "image/gif", "image/webp".
+    pub media_type: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: Uuid,
     pub session_id: Uuid,
     pub role: Role,
     pub content: String,
+    #[serde(default)]
+    pub images: Vec<ImageAttachment>,
     pub tool_calls: Vec<ToolCall>,
     pub tool_results: Vec<ToolResult>,
     pub created_at: DateTime<Utc>,
@@ -22,6 +34,27 @@ impl Message {
             session_id,
             role: Role::User,
             content: content.into(),
+            images: vec![],
+            tool_calls: vec![],
+            tool_results: vec![],
+            created_at: Utc::now(),
+            token_input: None,
+            token_output: None,
+        }
+    }
+
+    /// Create a user message with image attachments.
+    pub fn user_with_images(
+        session_id: Uuid,
+        content: impl Into<String>,
+        images: Vec<ImageAttachment>,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            session_id,
+            role: Role::User,
+            content: content.into(),
+            images,
             tool_calls: vec![],
             tool_results: vec![],
             created_at: Utc::now(),
@@ -36,6 +69,7 @@ impl Message {
             session_id,
             role: Role::Assistant,
             content: content.into(),
+            images: vec![],
             tool_calls: vec![],
             tool_results: vec![],
             created_at: Utc::now(),
@@ -50,6 +84,7 @@ impl Message {
             session_id,
             role: Role::System,
             content: content.into(),
+            images: vec![],
             tool_calls: vec![],
             tool_results: vec![],
             created_at: Utc::now(),

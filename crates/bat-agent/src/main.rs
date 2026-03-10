@@ -178,8 +178,8 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
     );
 
     // Step 2: receive UserMessage
-    let user_content = match pipe.recv().await? {
-        Some(GatewayToAgent::UserMessage { content }) => content,
+    let (user_content, user_images) = match pipe.recv().await? {
+        Some(GatewayToAgent::UserMessage { content, images }) => (content, images),
         Some(GatewayToAgent::Cancel) => {
             tracing::info!("Received Cancel before UserMessage — exiting");
             return Ok(());
@@ -216,6 +216,7 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
             &system_prompt,
             &history,
             &user_content,
+            &user_images,
             session_id,
             tx,
         )

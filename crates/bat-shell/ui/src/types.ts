@@ -2,6 +2,11 @@ export type Role = 'user' | 'assistant' | 'system'
 export type SessionStatus = 'active' | 'idle' | 'completed' | 'failed'
 export type AgentStatus = 'idle' | 'thinking' | 'tool_calling'
 
+export interface ImageAttachment {
+  data: string       // base64-encoded image data
+  mediaType: string  // MIME type, e.g. "image/png"
+}
+
 export interface ToolCall {
   id: string
   name: string
@@ -19,6 +24,7 @@ export interface Message {
   session_id: string
   role: Role
   content: string
+  images: ImageAttachment[]
   tool_calls: ToolCall[]
   tool_results: ToolResult[]
   created_at: string

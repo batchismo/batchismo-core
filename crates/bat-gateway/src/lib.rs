@@ -236,6 +236,7 @@ impl Gateway {
                         tokio::spawn(async move {
                             let result = run_agent_turn(
                                 session.id, cfg_model, system_prompt, history, msg.text,
+                                vec![],  // Telegram messages don't carry images yet
                                 path_policies, disabled_tools, api_key,
                                 eb, sm, db2, pm, cfg2,
                                 "main".to_string(),  // Telegram sessions are main/orchestrator
@@ -294,7 +295,11 @@ impl Gateway {
         }
     }
 
-    pub async fn send_user_message(&self, content: &str) -> Result<()> {
+    pub async fn send_user_message(
+        &self,
+        content: &str,
+        images: Vec<bat_types::message::ImageAttachment>,
+    ) -> Result<()> {
         let active_key = self.active_session_key();
         let session = self.get_or_create_session(&active_key)?;
 
@@ -305,8 +310,12 @@ impl Gateway {
             .get_history(session.id)
             .context("Failed to get session history")?;
 
-        // Persist the user message
-        let user_msg = Message::user(session.id, content);
+        // Persist the user message (with images if any)
+        let user_msg = if images.is_empty() {
+            Message::user(session.id, content)
+        } else {
+            Message::user_with_images(session.id, content, images.clone())
+        };
         self.session_manager
             .append_message(&user_msg)
             .context("Failed to persist user message")?;
@@ -351,6 +360,7 @@ impl Gateway {
         let event_bus = self.event_bus.clone();
         let session_manager = Arc::clone(&self.session_manager);
         let content_owned = content.to_string();
+        let images_owned = images;
 
         // Log the user message event
         self.log_event(
@@ -394,6 +404,7 @@ impl Gateway {
                 system_prompt,
                 history,
                 content_owned,
+                images_owned,
                 path_policies,
                 disabled_tools,
                 api_key,
@@ -1003,6 +1014,7 @@ fn handle_subagent_action(
                         info!("Subagent starting: key={sub_key}, task={}", &task[..task.len().min(60)]);
                         let result = run_agent_turn(
                             sub_id, model, sub_prompt, vec![], task.clone(),
+                            vec![],  // Subagents don't receive images
                             path_policies, disabled_tools, api_key,
                             eb.clone(), sm, db2.clone(), pm, cfg2,
                             "subagent".to_string(),  // This is a subagent/worker session
@@ -1269,6 +1281,7 @@ async fn run_agent_turn(
     system_prompt: String,
     history: Vec<Message>,
     user_content: String,
+    user_images: Vec<bat_types::message::ImageAttachment>,
     path_policies: Vec<PathPolicy>,
     disabled_tools: Vec<String>,
     api_key: String,
@@ -1290,7 +1303,11 @@ async fn run_agent_turn(
     info!("Created pipe: {}", pipe_name);
 
     // 2. Spawn the agent child process
-    let child = ipc::spawn_agent(&pipe_name, &api_key)
+    let openai_key = {
+        let cfg = gw_config.read().unwrap();
+        cfg.api_keys.openai_key()
+    };
+    let child = ipc::spawn_agent(&pipe_name, &api_key, openai_key.as_deref())
         .context("Failed to spawn bat-agent")?;
 
     let pid = child.id().unwrap_or(0);
@@ -1345,6 +1362,7 @@ async fn run_agent_turn(
     // 5. Send UserMessage
     pipe.send(&GatewayToAgent::UserMessage {
         content: user_content,
+        images: user_images,
     })
     .await
     .context("Failed to send UserMessage to agent")?;

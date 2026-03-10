@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import type { Message, AgentStatus, BatEvent } from '../types'
+import type { Message, AgentStatus, BatEvent, ImageAttachment } from '../types'
 import { sendMessage, getHistory } from '../lib/tauri'
 import { useBatEvents } from './useBatEvents'
 
@@ -55,7 +55,7 @@ export function useChat() {
 
   useBatEvents(handleEvent)
 
-  const send = useCallback(async (content: string) => {
+  const send = useCallback(async (content: string, images?: ImageAttachment[]) => {
     if (agentStatus !== 'idle') return
     setError(null)
     // Optimistically add user message
@@ -64,6 +64,7 @@ export function useChat() {
       session_id: '',
       role: 'user',
       content,
+      images: images || [],
       tool_calls: [],
       tool_results: [],
       created_at: new Date().toISOString(),
@@ -73,7 +74,7 @@ export function useChat() {
     setMessages(prev => [...prev, userMsg])
     setAgentStatus('thinking')
     try {
-      await sendMessage(content)
+      await sendMessage(content, images)
     } catch (e) {
       setError(String(e))
       setAgentStatus('idle')

@@ -19,11 +19,12 @@ use crate::AppState;
 #[tauri::command]
 pub async fn send_message(
     content: String,
+    images: Option<Vec<bat_types::message::ImageAttachment>>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
         .gateway
-        .send_user_message(&content)
+        .send_user_message(&content, images.unwrap_or_default())
         .await
         .map_err(|e| e.to_string())
 }
