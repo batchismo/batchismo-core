@@ -199,6 +199,13 @@ export interface MemoryFileInfo {
   modifiedAt: string | null
 }
 
+export type DiffKind = 'added' | 'removed' | 'context'
+
+export interface DiffLine {
+  kind: DiffKind
+  content: string
+}
+
 // Usage types
 export interface UsageStats {
   totalInput: number

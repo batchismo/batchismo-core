@@ -114,6 +114,9 @@ pub struct App {
     pub memory_summary: Option<ObservationSummary>,
     pub memory_consolidating: bool,
     pub memory_consolidation_result: String,
+    pub memory_history: Vec<bat_gateway::memory::MemoryBackupInfo>,
+    pub memory_history_cursor: usize,
+    pub memory_show_history: bool,
 
     // Activity (subagents)
     pub subagents: Vec<bat_types::session::SubagentInfo>,
@@ -182,6 +185,9 @@ impl App {
             memory_summary: None,
             memory_consolidating: false,
             memory_consolidation_result: String::new(),
+            memory_history: Vec::new(),
+            memory_history_cursor: 0,
+            memory_show_history: false,
 
             subagents: Vec::new(),
             activity_cursor: 0,

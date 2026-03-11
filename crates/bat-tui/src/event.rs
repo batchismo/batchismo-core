@@ -514,6 +514,42 @@ async fn handle_logs_key(app: &mut App, key: KeyEvent) -> Result<()> {
 }
 
 async fn handle_memory_key(app: &mut App, key: KeyEvent) -> Result<()> {
+    // History overlay
+    if app.memory_show_history {
+        match key.code {
+            KeyCode::Esc => {
+                app.memory_show_history = false;
+            }
+            KeyCode::Up => {
+                app.memory_history_cursor = app.memory_history_cursor.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                if !app.memory_history.is_empty() {
+                    app.memory_history_cursor = (app.memory_history_cursor + 1).min(app.memory_history.len() - 1);
+                }
+            }
+            KeyCode::Enter => {
+                // Restore selected backup
+                if let (Some(file), Some(backup)) = (
+                    app.memory_files.get(app.memory_cursor),
+                    app.memory_history.get(app.memory_history_cursor),
+                ) {
+                    let name = file.name.clone();
+                    let ts = backup.timestamp.clone();
+                    if let Err(e) = app.gateway.restore_memory_backup(&name, &ts) {
+                        warn!("Failed to restore backup: {e}");
+                    } else {
+                        app.memory_show_history = false;
+                        app.load_selected_memory_file().await;
+                        app.refresh_memory().await;
+                    }
+                }
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
     // If editing a memory file, handle editing keys
     if app.memory_editing {
         match key.code {
@@ -599,6 +635,20 @@ async fn handle_memory_key(app: &mut App, key: KeyEvent) -> Result<()> {
                     }
                 }
                 app.memory_consolidating = false;
+            }
+        }
+        KeyCode::Char('h') => {
+            if let Some(file) = app.memory_files.get(app.memory_cursor) {
+                match app.gateway.get_memory_history(&file.name) {
+                    Ok(history) => {
+                        app.memory_history = history;
+                        app.memory_history_cursor = 0;
+                        app.memory_show_history = true;
+                    }
+                    Err(e) => {
+                        warn!("Failed to load history: {e}");
+                    }
+                }
             }
         }
         _ => {}

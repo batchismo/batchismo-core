@@ -1,6 +1,7 @@
 pub mod channels;
 pub mod config;
 pub mod consolidation;
+pub mod correction;
 pub mod db;
 pub mod events;
 pub mod ipc;
@@ -78,6 +79,8 @@ pub struct Gateway {
     process_manager: process_manager::ProcessManager,
     /// Key of the currently active session.
     active_session_key: Arc<RwLock<String>>,
+    /// Last consolidation diffs (for diff view in UI).
+    last_consolidation_diffs: Arc<RwLock<Vec<consolidation::FileDiff>>>,
 }
 
 impl Gateway {
@@ -95,6 +98,7 @@ impl Gateway {
             event_bus,
             process_manager: process_manager::ProcessManager::new(),
             active_session_key: Arc::new(RwLock::new("main".to_string())),
+            last_consolidation_diffs: Arc::new(RwLock::new(Vec::new())),
         })
     }
 
@@ -398,6 +402,10 @@ impl Gateway {
             let api_key_for_reflection = if is_main { Some(api_key.clone()) } else { None };
             let model_for_reflection = if is_main { Some(model.clone()) } else { None };
 
+            // Clone for post-turn usage (reflection + auto-consolidation)
+            let db_post = Arc::clone(&db);
+            let gw_config_post = Arc::clone(&gw_config);
+
             if let Err(e) = run_agent_turn(
                 session.id,
                 model,
@@ -439,6 +447,40 @@ impl Gateway {
                     }
                     Err(e) => {
                         warn!("Reflection: failed to get history: {e}");
+                    }
+                }
+            }
+
+            // Check if automatic consolidation should trigger
+            {
+                let (auto_enabled, obs_threshold, session_threshold) = {
+                    let cfg = gw_config_post.read().unwrap();
+                    (
+                        cfg.memory.auto_consolidation,
+                        cfg.memory.consolidation_observation_threshold as i64,
+                        cfg.memory.consolidation_session_threshold as i64,
+                    )
+                };
+                if auto_enabled {
+                    let last = db_post.get_metadata("last_consolidation").unwrap_or(None);
+                    let obs_count = db_post.count_observations_since(last.as_deref()).unwrap_or(0);
+                    let session_count = db_post.count_sessions_since(last.as_deref()).unwrap_or(0);
+
+                    if obs_count >= obs_threshold || session_count >= session_threshold {
+                        info!("Auto-consolidation triggered: {} obs, {} sessions", obs_count, session_count);
+                        let (api_key_c, model_c) = {
+                            let cfg = gw_config_post.read().unwrap();
+                            (
+                                cfg.api_keys.anthropic_key().unwrap_or_default(),
+                                cfg.agent.model.clone(),
+                            )
+                        };
+                        if !api_key_c.is_empty() {
+                            match consolidation::run_consolidation(&db_post, &event_bus, &api_key_c, &model_c).await {
+                                Ok(r) => info!("Auto-consolidation: {} files updated", r.files_updated.len()),
+                                Err(e) => warn!("Auto-consolidation failed: {e}"),
+                            }
+                        }
                     }
                 }
             }
@@ -914,12 +956,100 @@ impl Gateway {
             let cfg = self.config.read().unwrap();
             let key = cfg.api_keys.anthropic_key()
                 .ok_or_else(|| anyhow::anyhow!("No Anthropic API key configured"))?;
-            // Use the user's configured model for consolidation
             let model = cfg.agent.model.clone();
             (key, model)
         };
 
-        consolidation::run_consolidation(&self.db, &self.event_bus, &api_key, &model).await
+        let result = consolidation::run_consolidation(&self.db, &self.event_bus, &api_key, &model).await?;
+
+        // Store diffs for the UI
+        *self.last_consolidation_diffs.write().unwrap() = result.diffs.clone();
+
+        Ok(result)
+    }
+
+    /// Get the diffs from the last consolidation.
+    pub fn get_last_consolidation_diffs(&self) -> Vec<consolidation::FileDiff> {
+        self.last_consolidation_diffs.read().unwrap().clone()
+    }
+
+    /// Get a memory diff for a specific file (compares .bak with current).
+    pub fn get_memory_diff(&self, name: &str) -> Result<Vec<bat_types::memory::DiffLine>> {
+        // First check last consolidation diffs
+        let diffs = self.last_consolidation_diffs.read().unwrap();
+        for d in diffs.iter() {
+            if d.name == name {
+                return Ok(bat_types::memory::line_diff(&d.old_content, &d.new_content));
+            }
+        }
+        // Fallback: diff .bak vs current
+        let current = memory::read_memory_file(name)?;
+        let bak_name = format!("{name}.bak");
+        let workspace = config::workspace_path();
+        let bak_path = workspace.join(&bak_name);
+        if bak_path.exists() {
+            let old = std::fs::read_to_string(&bak_path)?;
+            Ok(bat_types::memory::line_diff(&old, &current))
+        } else {
+            // No backup = all lines are "added"
+            Ok(bat_types::memory::line_diff("", &current))
+        }
+    }
+
+    /// Check if automatic consolidation should be triggered, and run it if so.
+    pub async fn maybe_auto_consolidate(&self) {
+        let (enabled, session_threshold, obs_threshold) = {
+            let cfg = self.config.read().unwrap();
+            (
+                cfg.memory.auto_consolidation,
+                cfg.memory.consolidation_session_threshold as i64,
+                cfg.memory.consolidation_observation_threshold as i64,
+            )
+        };
+        if !enabled {
+            return;
+        }
+
+        let last = self.db.get_metadata("last_consolidation").unwrap_or(None);
+        let obs_count = self.db.count_observations_since(last.as_deref()).unwrap_or(0);
+        let session_count = self.db.count_sessions_since(last.as_deref()).unwrap_or(0);
+
+        if obs_count >= obs_threshold || session_count >= session_threshold {
+            info!("Auto-consolidation triggered: {} observations, {} sessions since last consolidation",
+                obs_count, session_count);
+            match self.trigger_consolidation().await {
+                Ok(result) => {
+                    info!("Auto-consolidation complete: {} files updated", result.files_updated.len());
+                }
+                Err(e) => {
+                    warn!("Auto-consolidation failed: {e}");
+                }
+            }
+        }
+    }
+
+    /// List backup history for a memory file.
+    pub fn get_memory_history(&self, name: &str) -> Result<Vec<memory::MemoryBackupInfo>> {
+        memory::list_memory_history(name)
+    }
+
+    /// Restore a memory file from a backup.
+    pub fn restore_memory_backup(&self, name: &str, timestamp: &str) -> Result<()> {
+        memory::restore_memory_backup(name, timestamp)?;
+        self.log_event(
+            AuditLevel::Info,
+            AuditCategory::Config,
+            "memory_restore",
+            &format!("Memory file restored: {name} from {timestamp}"),
+            None,
+            None,
+        );
+        Ok(())
+    }
+
+    /// Read a specific backup version (for preview).
+    pub fn preview_memory_backup(&self, name: &str, timestamp: &str) -> Result<String> {
+        memory::read_memory_backup(name, timestamp)
     }
 
     /// Write a memory file.
@@ -1295,6 +1425,13 @@ async fn run_agent_turn(
     telegram_reply_tx: Option<tokio::sync::mpsc::UnboundedSender<AgentToGateway>>,
 ) -> Result<()> {
     let sid = session_id.to_string();
+
+    // Detect user corrections/preferences in the message
+    let detections = correction::detect(&user_content);
+    for det in &detections {
+        let _ = db.record_observation(det.kind, &det.key, Some(&det.value), Some(&sid));
+        info!("Detected {:?}: {} = {}", det.kind, det.key, det.value);
+    }
 
     // 1. Create named pipe server
     let (server, pipe_name) = ipc::create_pipe_server(session_id)

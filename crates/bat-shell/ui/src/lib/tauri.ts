@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats, ElevenLabsVoice, ImageAttachment } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats, ElevenLabsVoice, ImageAttachment, DiffLine } from '../types'
 
 export const sendMessage = (content: string, images?: ImageAttachment[]): Promise<void> =>
   invoke('send_message', { content, images: images?.length ? images : null })
@@ -58,6 +58,9 @@ export const getObservationSummary = (): Promise<ObservationSummary> =>
 
 export const triggerConsolidation = (): Promise<string> =>
   invoke('trigger_consolidation')
+
+export const getMemoryDiff = (name: string): Promise<DiffLine[]> =>
+  invoke('get_memory_diff', { name })
 
 // Sessions
 export const listSessions = (): Promise<SessionMeta[]> =>

@@ -32,6 +32,7 @@ pub async fn run_consolidation(
         return Ok(ConsolidationResult {
             files_updated: vec![],
             observations_processed: 0,
+            diffs: vec![],
         });
     }
 
@@ -101,10 +102,16 @@ Respond with exactly two sections:
 
     // 6. Parse the response into file updates
     let mut files_updated = Vec::new();
+    let mut diffs = Vec::new();
 
     if let Some(memory_content) = extract_section(&response_text, "MEMORY.md") {
         let trimmed = memory_content.trim();
         if !trimmed.is_empty() && trimmed != current_memory.trim() {
+            diffs.push(FileDiff {
+                name: "MEMORY.md".to_string(),
+                old_content: current_memory.clone(),
+                new_content: trimmed.to_string(),
+            });
             memory::write_memory_file("MEMORY.md", trimmed)?;
             files_updated.push("MEMORY.md".to_string());
             info!("Updated MEMORY.md");
@@ -114,6 +121,11 @@ Respond with exactly two sections:
     if let Some(patterns_content) = extract_section(&response_text, "PATTERNS.md") {
         let trimmed = patterns_content.trim();
         if !trimmed.is_empty() && trimmed != current_patterns.trim() {
+            diffs.push(FileDiff {
+                name: "PATTERNS.md".to_string(),
+                old_content: current_patterns.clone(),
+                new_content: trimmed.to_string(),
+            });
             memory::write_memory_file("PATTERNS.md", trimmed)?;
             files_updated.push("PATTERNS.md".to_string());
             info!("Updated PATTERNS.md");
@@ -123,9 +135,13 @@ Respond with exactly two sections:
     let result = ConsolidationResult {
         observations_processed: observations.len(),
         files_updated,
+        diffs,
     };
 
-    // 7. Audit log
+    // 7. Record consolidation timestamp
+    let _ = db.set_metadata("last_consolidation", &chrono::Utc::now().to_rfc3339());
+
+    // 8. Audit log
     let ts = chrono::Utc::now().to_rfc3339();
     let summary = format!(
         "Memory consolidation: {} observations processed, {} files updated",
@@ -159,6 +175,16 @@ fn extract_section(text: &str, filename: &str) -> Option<String> {
 pub struct ConsolidationResult {
     pub files_updated: Vec<String>,
     pub observations_processed: usize,
+    /// Before/after content for each updated file (for diff view).
+    pub diffs: Vec<FileDiff>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiff {
+    pub name: String,
+    pub old_content: String,
+    pub new_content: String,
 }
 
 #[cfg(test)]

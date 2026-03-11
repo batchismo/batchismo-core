@@ -83,7 +83,20 @@ pub struct MemoryConfig {
     pub update_mode: String,
     pub consolidation_schedule: String,
     pub max_memory_file_size_kb: u32,
+    /// Enable automatic consolidation based on thresholds.
+    #[serde(default = "default_true")]
+    pub auto_consolidation: bool,
+    /// Trigger consolidation after this many sessions.
+    #[serde(default = "default_session_threshold")]
+    pub consolidation_session_threshold: u32,
+    /// Trigger consolidation after this many observations accumulate.
+    #[serde(default = "default_observation_threshold")]
+    pub consolidation_observation_threshold: u32,
 }
+
+fn default_true() -> bool { true }
+fn default_session_threshold() -> u32 { 10 }
+fn default_observation_threshold() -> u32 { 50 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxConfig {
@@ -180,6 +193,9 @@ impl Default for BatConfig {
                 update_mode: "auto".to_string(),
                 consolidation_schedule: "daily".to_string(),
                 max_memory_file_size_kb: 512,
+                auto_consolidation: true,
+                consolidation_session_threshold: 10,
+                consolidation_observation_threshold: 50,
             },
             sandbox: SandboxConfig {
                 memory_limit_mb: 512,
