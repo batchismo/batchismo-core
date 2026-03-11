@@ -290,6 +290,44 @@ pub fn get_observation_summary(state: State<'_, AppState>) -> Result<Observation
     state.gateway.get_observation_summary().map_err(|e| e.to_string())
 }
 
+/// Get backup history for a memory file.
+#[tauri::command]
+pub fn get_memory_history(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_gateway::memory::MemoryBackupInfo>, String> {
+    state.gateway.get_memory_history(&name).map_err(|e| e.to_string())
+}
+
+/// Restore a memory file from a backup.
+#[tauri::command]
+pub fn restore_memory_backup(
+    name: String,
+    timestamp: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.gateway.restore_memory_backup(&name, &timestamp).map_err(|e| e.to_string())
+}
+
+/// Preview a specific backup version.
+#[tauri::command]
+pub fn preview_memory_backup(
+    name: String,
+    timestamp: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    state.gateway.preview_memory_backup(&name, &timestamp).map_err(|e| e.to_string())
+}
+
+/// Get a diff for a memory file (last consolidation or .bak comparison).
+#[tauri::command]
+pub fn get_memory_diff(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_types::memory::DiffLine>, String> {
+    state.gateway.get_memory_diff(&name).map_err(|e| e.to_string())
+}
+
 /// Trigger memory consolidation.
 #[tauri::command]
 pub async fn trigger_consolidation(state: State<'_, AppState>) -> Result<String, String> {

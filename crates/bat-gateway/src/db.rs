@@ -110,6 +110,14 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);"
         )?;
 
+        // Metadata key-value store for tracking things like last consolidation
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS metadata (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );"
+        )?;
+
         // Migration: add subagent columns to sessions (safe if they already exist)
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN parent_id TEXT", []);
@@ -694,13 +702,77 @@ impl Database {
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<Vec<_>, _>>()?;
 
+        let last_consolidation: Option<String> = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'last_consolidation'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+
         Ok(ObservationSummary {
             total_observations: total,
             total_sessions,
             top_tools,
             top_paths,
-            last_consolidation: None, // TODO: track this
+            last_consolidation,
         })
+    }
+
+    /// Get a metadata value by key.
+    pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        match conn.query_row(
+            "SELECT value FROM metadata WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        ) {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Set a metadata value.
+    pub fn set_metadata(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Count observations since a given timestamp (or all if None).
+    pub fn count_observations_since(&self, since: Option<&str>) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        if let Some(ts) = since {
+            Ok(conn.query_row(
+                "SELECT COUNT(*) FROM observations WHERE ts > ?1",
+                params![ts],
+                |r| r.get(0),
+            )?)
+        } else {
+            Ok(conn.query_row("SELECT COUNT(*) FROM observations", [], |r| r.get(0))?)
+        }
+    }
+
+    /// Count distinct sessions since a given timestamp.
+    pub fn count_sessions_since(&self, since: Option<&str>) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        if let Some(ts) = since {
+            Ok(conn.query_row(
+                "SELECT COUNT(DISTINCT session_id) FROM observations WHERE session_id IS NOT NULL AND ts > ?1",
+                params![ts],
+                |r| r.get(0),
+            )?)
+        } else {
+            Ok(conn.query_row(
+                "SELECT COUNT(DISTINCT session_id) FROM observations WHERE session_id IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )?)
+        }
     }
 }
 

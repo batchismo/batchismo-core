@@ -33,10 +33,23 @@ pub fn render(f: &mut Frame, app: &App) {
         .split(outer[1]);
 
     render_file_list(f, app, main[0]);
-    render_content(f, app, main[1]);
+    if app.memory_show_history {
+        render_history(f, app, main[1]);
+    } else {
+        render_content(f, app, main[1]);
+    }
 
     // Footer
-    let footer_text = if app.memory_editing {
+    let footer_text = if app.memory_show_history {
+        vec![
+            Span::styled(" ↑↓", Style::default().fg(Color::Yellow)),
+            Span::raw(":Navigate  "),
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::raw(":Restore  "),
+            Span::styled("Esc", Style::default().fg(Color::Yellow)),
+            Span::raw(":Close"),
+        ]
+    } else if app.memory_editing {
         vec![
             Span::styled(" Esc", Style::default().fg(Color::Yellow)),
             Span::raw(":Cancel  "),
@@ -53,6 +66,8 @@ pub fn render(f: &mut Frame, app: &App) {
             Span::raw(":Edit  "),
             Span::styled("c", Style::default().fg(Color::Yellow)),
             Span::raw(":Consolidate  "),
+            Span::styled("h", Style::default().fg(Color::Yellow)),
+            Span::raw(":History  "),
             Span::styled("Esc", Style::default().fg(Color::Yellow)),
             Span::raw(":Back"),
         ]
@@ -203,6 +218,53 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
         )
         .wrap(Wrap { trim: false });
     f.render_widget(paragraph, area);
+}
+
+fn render_history(f: &mut Frame, app: &App, area: Rect) {
+    let title = if let Some(file) = app.memory_files.get(app.memory_cursor) {
+        format!(" {} — History ", file.name)
+    } else {
+        " History ".to_string()
+    };
+
+    let items: Vec<ListItem> = if app.memory_history.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "  No backups available",
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        app.memory_history
+            .iter()
+            .enumerate()
+            .map(|(i, backup)| {
+                let selected = i == app.memory_history_cursor;
+                let size = if backup.size_bytes < 1024 {
+                    format!("{} B", backup.size_bytes)
+                } else {
+                    format!("{:.1} KB", backup.size_bytes as f64 / 1024.0)
+                };
+                let ts_display = backup.timestamp.replace('T', " ").replace('-', ":");
+                let style = if selected {
+                    Style::default().fg(Color::White).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("  {ts_display}"), style),
+                    Span::styled(format!("  ({size})"), Style::default().fg(Color::DarkGray)),
+                ]))
+            })
+            .collect()
+    };
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+    f.render_widget(list, area);
 }
 
 fn truncate(s: &str, max: usize) -> &str {

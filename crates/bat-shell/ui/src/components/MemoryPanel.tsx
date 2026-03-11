@@ -1,17 +1,28 @@
 import { useEffect, useState } from 'react'
-import type { MemoryFileInfo, ObservationSummary } from '../types'
-import { getMemoryFiles, getMemoryFile, updateMemoryFile, getObservationSummary, triggerConsolidation } from '../lib/tauri'
+import type { MemoryFileInfo, ObservationSummary, DiffLine } from '../types'
+import { getMemoryFiles, getMemoryFile, updateMemoryFile, getObservationSummary, triggerConsolidation, getMemoryDiff } from '../lib/tauri'
+
+type ViewMode = 'view' | 'edit' | 'diff' | 'history'
+
+interface MemoryBackup {
+  timestamp: string
+  sizeBytes: number
+}
 
 export function MemoryPanel() {
   const [files, setFiles] = useState<MemoryFileInfo[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [content, setContent] = useState('')
-  const [editMode, setEditMode] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('view')
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [summary, setSummary] = useState<ObservationSummary | null>(null)
   const [consolidating, setConsolidating] = useState(false)
   const [consolidateResult, setConsolidateResult] = useState('')
+  const [diffLines, setDiffLines] = useState<DiffLine[]>([])
+  const [diffLoading, setDiffLoading] = useState(false)
+  const [history, setHistory] = useState<MemoryBackup[]>([])
+  const [historyPreview, setHistoryPreview] = useState<string | null>(null)
 
   useEffect(() => {
     loadFiles()
@@ -32,7 +43,7 @@ export function MemoryPanel() {
 
   async function selectFile(name: string) {
     setSelectedFile(name)
-    setEditMode(false)
+    setViewMode('view')
     try {
       const c = await getMemoryFile(name)
       setContent(c)
@@ -48,7 +59,7 @@ export function MemoryPanel() {
     try {
       await updateMemoryFile(selectedFile, editContent)
       setContent(editContent)
-      setEditMode(false)
+      setViewMode('view')
     } catch (e) {
       console.error('Failed to save:', e)
     } finally {
@@ -62,7 +73,6 @@ export function MemoryPanel() {
     try {
       const result = await triggerConsolidation()
       setConsolidateResult(result)
-      // Reload files after consolidation
       await loadFiles()
       if (selectedFile) await selectFile(selectedFile)
       getObservationSummary().then(setSummary).catch(console.error)
@@ -70,6 +80,57 @@ export function MemoryPanel() {
       setConsolidateResult(`Error: ${e}`)
     } finally {
       setConsolidating(false)
+    }
+  }
+
+  async function loadDiff() {
+    if (!selectedFile) return
+    setDiffLoading(true)
+    try {
+      const lines = await getMemoryDiff(selectedFile)
+      setDiffLines(lines)
+      setViewMode('diff')
+    } catch (e) {
+      console.error('Failed to load diff:', e)
+    } finally {
+      setDiffLoading(false)
+    }
+  }
+
+  async function loadHistory() {
+    if (!selectedFile) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const h: MemoryBackup[] = await invoke('get_memory_history', { name: selectedFile })
+      setHistory(h)
+      setHistoryPreview(null)
+      setViewMode('history')
+    } catch {
+      // Command may not exist yet; show empty
+      setHistory([])
+      setViewMode('history')
+    }
+  }
+
+  async function restoreBackup(timestamp: string) {
+    if (!selectedFile) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('restore_memory_backup', { name: selectedFile, timestamp })
+      await selectFile(selectedFile)
+    } catch (e) {
+      console.error('Failed to restore:', e)
+    }
+  }
+
+  async function previewBackup(timestamp: string) {
+    if (!selectedFile) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const content: string = await invoke('preview_memory_backup', { name: selectedFile, timestamp })
+      setHistoryPreview(content)
+    } catch {
+      setHistoryPreview('(preview not available)')
     }
   }
 
@@ -179,10 +240,10 @@ export function MemoryPanel() {
           <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800 bg-zinc-900/50 flex-shrink-0">
             <span className="text-sm font-medium text-zinc-300">{selectedFile}</span>
             <div className="flex-1" />
-            {editMode ? (
+            {viewMode === 'edit' ? (
               <>
                 <button
-                  onClick={() => { setEditMode(false); setEditContent(content) }}
+                  onClick={() => { setViewMode('view'); setEditContent(content) }}
                   className="px-3 py-1 text-xs text-zinc-400 hover:text-zinc-200 rounded"
                 >
                   Cancel
@@ -196,12 +257,33 @@ export function MemoryPanel() {
                 </button>
               </>
             ) : (
-              <button
-                onClick={() => setEditMode(true)}
-                className="px-3 py-1 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 rounded"
-              >
-                Edit
-              </button>
+              <>
+                <button
+                  onClick={() => setViewMode('view')}
+                  className={`px-3 py-1 text-xs rounded ${viewMode === 'view' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
+                >
+                  View
+                </button>
+                <button
+                  onClick={() => { setEditContent(content); setViewMode('edit') }}
+                  className={`px-3 py-1 text-xs rounded ${viewMode === 'edit' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={loadDiff}
+                  disabled={diffLoading}
+                  className={`px-3 py-1 text-xs rounded ${viewMode === 'diff' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
+                >
+                  {diffLoading ? '...' : 'Diff'}
+                </button>
+                <button
+                  onClick={loadHistory}
+                  className={`px-3 py-1 text-xs rounded ${viewMode === 'history' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
+                >
+                  History
+                </button>
+              </>
             )}
           </div>
         )}
@@ -212,13 +294,73 @@ export function MemoryPanel() {
             <div className="flex items-center justify-center h-full text-zinc-600">
               Select a file to view
             </div>
-          ) : editMode ? (
+          ) : viewMode === 'edit' ? (
             <textarea
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
               className="w-full h-full bg-zinc-900 text-zinc-200 font-mono text-sm p-3 rounded-lg border border-zinc-700 focus:outline-none focus:border-[#39FF14] resize-none"
               spellCheck={false}
             />
+          ) : viewMode === 'diff' ? (
+            <div className="font-mono text-sm space-y-0">
+              {diffLines.length === 0 ? (
+                <div className="text-zinc-600 italic">No changes detected</div>
+              ) : (
+                diffLines.map((line, i) => (
+                  <div
+                    key={i}
+                    className={`px-2 py-0.5 ${
+                      line.kind === 'added'
+                        ? 'bg-green-900/30 text-green-300'
+                        : line.kind === 'removed'
+                        ? 'bg-red-900/30 text-red-300'
+                        : 'text-zinc-400'
+                    }`}
+                  >
+                    <span className="inline-block w-4 text-center opacity-60 select-none">
+                      {line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' '}
+                    </span>
+                    {line.content}
+                  </div>
+                ))
+              )}
+            </div>
+          ) : viewMode === 'history' ? (
+            <div className="space-y-2">
+              {history.length === 0 ? (
+                <div className="text-zinc-600 italic">No backup history available</div>
+              ) : (
+                <>
+                  <div className="text-xs text-zinc-500 uppercase mb-2">Previous Versions</div>
+                  {history.map((backup) => (
+                    <div key={backup.timestamp} className="flex items-center gap-3 px-3 py-2 bg-zinc-800/50 rounded">
+                      <div className="flex-1">
+                        <div className="text-sm text-zinc-300">{formatTime(backup.timestamp)}</div>
+                        <div className="text-xs text-zinc-500">{formatBytes(backup.sizeBytes)}</div>
+                      </div>
+                      <button
+                        onClick={() => previewBackup(backup.timestamp)}
+                        className="px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 rounded"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        onClick={() => restoreBackup(backup.timestamp)}
+                        className="px-2 py-1 text-xs text-amber-400 hover:text-amber-300 border border-amber-700/50 rounded"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  ))}
+                  {historyPreview !== null && (
+                    <div className="mt-3 border border-zinc-700 rounded-lg p-3">
+                      <div className="text-xs text-zinc-500 mb-2">Preview</div>
+                      <pre className="text-sm text-zinc-300 font-mono whitespace-pre-wrap">{historyPreview}</pre>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           ) : (
             <pre className="text-sm text-zinc-300 font-mono whitespace-pre-wrap break-words leading-relaxed">
               {content}
