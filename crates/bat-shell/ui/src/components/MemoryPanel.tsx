@@ -260,13 +260,13 @@ export function MemoryPanel() {
               <>
                 <button
                   onClick={() => setViewMode('view')}
-                  className={`px-3 py-1 text-xs rounded ${viewMode === 'view' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
+                  className={`px-3 py-1 text-xs rounded ${(viewMode as ViewMode) === 'view' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
                 >
                   View
                 </button>
                 <button
                   onClick={() => { setEditContent(content); setViewMode('edit') }}
-                  className={`px-3 py-1 text-xs rounded ${viewMode === 'edit' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
+                  className={`px-3 py-1 text-xs rounded ${(viewMode as ViewMode) === 'edit' ? 'text-white bg-zinc-700' : 'text-zinc-400 hover:text-zinc-200 border border-zinc-700'}`}
                 >
                   Edit
                 </button>
