@@ -605,6 +605,16 @@ impl Gateway {
         self.db.get_usage_stats()
     }
 
+    /// Cancel a running subagent by session ID.
+    pub async fn cancel_subagent(&self, session_id: uuid::Uuid) -> Result<()> {
+        self.db.update_subagent_status(
+            session_id,
+            bat_types::session::SubagentStatus::Cancelled,
+            Some("Cancelled by user"),
+        )?;
+        Ok(())
+    }
+
     /// Get all subagent sessions for the main session.
     pub async fn get_subagents(&self) -> Result<Vec<bat_types::session::SubagentInfo>> {
         let session = self.session_manager.get_or_create_main()?;

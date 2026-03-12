@@ -14,7 +14,7 @@ pub fn render(f: &mut Frame, app: &App) {
         .split(f.area());
 
     // Title
-    let title = Paragraph::new("  Activity — Subagents  [Tab] next  [r] refresh  [Enter] expand  [Esc] back")
+    let title = Paragraph::new("  Activity — Subagents  [Tab] next  [r] refresh  [c] cancel  [Enter] expand  [Esc] back")
         .style(Style::default().fg(Color::DarkGray));
     f.render_widget(title, chunks[0]);
 
@@ -121,10 +121,12 @@ pub fn render(f: &mut Frame, app: &App) {
         }
     }
 
-    // Status bar
-    let running = app.subagents.iter().filter(|s| s.status == bat_types::session::SubagentStatus::Running).count();
+    // Status bar with running / completed / failed counts
+    let running = app.subagents.iter().filter(|s| s.status == bat_types::session::SubagentStatus::Running || s.status == bat_types::session::SubagentStatus::WaitingForAnswer).count();
+    let completed = app.subagents.iter().filter(|s| s.status == bat_types::session::SubagentStatus::Completed).count();
+    let failed = app.subagents.iter().filter(|s| s.status == bat_types::session::SubagentStatus::Failed || s.status == bat_types::session::SubagentStatus::TimedOut).count();
     let total = app.subagents.len();
-    let status = format!("  {total} subagent(s)  |  {running} running");
+    let status = format!("  {total} total  |  {running} running  |  {completed} completed  |  {failed} failed  |  [c] cancel  [r] refresh");
     let bar = Paragraph::new(status)
         .style(Style::default().fg(Color::DarkGray).bg(Color::Rgb(30, 30, 30)));
     f.render_widget(bar, chunks[2]);

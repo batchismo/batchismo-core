@@ -748,6 +748,17 @@ async fn handle_activity_key(app: &mut App, key: KeyEvent) -> anyhow::Result<()>
         KeyCode::Enter => {
             app.activity_expanded = !app.activity_expanded;
         }
+        KeyCode::Char('c') => {
+            // Cancel the selected running subagent
+            if let Some(agent) = app.subagents.get(app.activity_cursor) {
+                if agent.status == bat_types::session::SubagentStatus::Running
+                    || agent.status == bat_types::session::SubagentStatus::WaitingForAnswer
+                {
+                    let _ = app.gateway.cancel_subagent(agent.session_id).await;
+                    app.refresh_subagents().await;
+                }
+            }
+        }
         _ => {}
     }
     Ok(())

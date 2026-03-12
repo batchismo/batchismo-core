@@ -126,7 +126,7 @@ export interface BatConfig {
   agent: AgentConfig
   gateway: { port: number; log_level: string }
   memory: { update_mode: string; consolidation_schedule: string; max_memory_file_size_kb: number }
-  sandbox: { memory_limit_mb: number; cpu_shares: number; max_concurrent_subagents: number }
+  sandbox: { memory_limit_mb: number; cpu_shares: number; max_concurrent_subagents: number; subagent_timeout_minutes: number }
   paths: PathPolicy[]
   channels?: ChannelsConfig
   voice: VoiceConfig
@@ -263,4 +263,4 @@ export interface FolderAccess {
   access: string
   recursive: boolean
 }
-export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'about'
+export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'audit' | 'sandbox' | 'about'
