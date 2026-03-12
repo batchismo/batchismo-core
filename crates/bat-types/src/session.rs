@@ -56,6 +56,8 @@ pub enum SubagentStatus {
     Completed,
     Failed,
     Cancelled,
+    TimedOut,
+    Archived,
 }
 
 impl std::fmt::Display for SubagentStatus {
@@ -67,6 +69,8 @@ impl std::fmt::Display for SubagentStatus {
             Self::Completed => write!(f, "completed"),
             Self::Failed => write!(f, "failed"),
             Self::Cancelled => write!(f, "cancelled"),
+            Self::TimedOut => write!(f, "timed_out"),
+            Self::Archived => write!(f, "archived"),
         }
     }
 }
@@ -81,6 +85,8 @@ impl std::str::FromStr for SubagentStatus {
             "completed" => Ok(Self::Completed),
             "failed" => Ok(Self::Failed),
             "cancelled" => Ok(Self::Cancelled),
+            "timed_out" => Ok(Self::TimedOut),
+            "archived" => Ok(Self::Archived),
             _ => Err(anyhow::anyhow!("unknown subagent status: {}", s)),
         }
     }

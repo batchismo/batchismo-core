@@ -299,11 +299,52 @@ impl Gateway {
         }
     }
 
+    /// Clean up timed-out and archivable subagent sessions.
+    pub fn cleanup_subagents(&self) {
+        let timeout_minutes = {
+            let cfg = self.config.read().unwrap();
+            cfg.sandbox.subagent_timeout_minutes
+        };
+
+        // Time out running subagents that exceeded the timeout
+        if let Ok(timed_out) = self.db.get_timed_out_subagents(timeout_minutes) {
+            for (id, key) in &timed_out {
+                info!("Timing out subagent: key={key}");
+                let _ = self.db.update_subagent_status(
+                    *id,
+                    bat_types::session::SubagentStatus::TimedOut,
+                    Some("Subagent exceeded timeout limit"),
+                );
+                self.event_bus.send(AgentToGateway::AuditLog {
+                    level: "warn".into(),
+                    category: "agent".into(),
+                    event: "subagent_timeout".into(),
+                    summary: format!("[Subagent: {key} — timed out after {timeout_minutes}m]"),
+                    detail_json: None,
+                });
+            }
+        }
+
+        // Archive old completed sessions (24 hours)
+        if let Ok(archivable) = self.db.get_archivable_subagents(24) {
+            for id in &archivable {
+                let _ = self.db.update_subagent_status(
+                    *id,
+                    bat_types::session::SubagentStatus::Archived,
+                    None,
+                );
+            }
+        }
+    }
+
     pub async fn send_user_message(
         &self,
         content: &str,
         images: Vec<bat_types::message::ImageAttachment>,
     ) -> Result<()> {
+        // Run subagent cleanup on each new message
+        self.cleanup_subagents();
+
         let active_key = self.active_session_key();
         let session = self.get_or_create_session(&active_key)?;
 
@@ -1106,6 +1147,27 @@ fn handle_subagent_action(
 
     match action {
         ProcessAction::SpawnSubagent { task, label } => {
+            // Enforce max concurrent subagents limit
+            let max_concurrent = {
+                let cfg = config.read().unwrap();
+                cfg.sandbox.max_concurrent_subagents
+            };
+            match db.count_running_subagents() {
+                Ok(running) if running >= max_concurrent as i64 => {
+                    return ProcessResult::Error {
+                        message: format!(
+                            "Maximum concurrent subagents ({max_concurrent}) reached. Wait for a running task to complete."
+                        ),
+                    };
+                }
+                Err(e) => {
+                    return ProcessResult::Error {
+                        message: format!("Failed to check subagent count: {e}"),
+                    };
+                }
+                _ => {}
+            }
+
             let label = label.unwrap_or_else(|| task.chars().take(40).collect::<String>());
             let (model, api_key_resolved, disabled_tools_base) = {
                 let cfg = config.read().unwrap();

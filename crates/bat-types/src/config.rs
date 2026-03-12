@@ -103,7 +103,11 @@ pub struct SandboxConfig {
     pub memory_limit_mb: u32,
     pub cpu_shares: u32,
     pub max_concurrent_subagents: u32,
+    #[serde(default = "default_subagent_timeout")]
+    pub subagent_timeout_minutes: u32,
 }
+
+fn default_subagent_timeout() -> u32 { 60 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChannelsConfig {
@@ -201,6 +205,7 @@ impl Default for BatConfig {
                 memory_limit_mb: 512,
                 cpu_shares: 512,
                 max_concurrent_subagents: 5,
+                subagent_timeout_minutes: 60,
             },
             paths: vec![],
             channels: ChannelsConfig::default(),

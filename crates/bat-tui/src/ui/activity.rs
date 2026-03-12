@@ -43,6 +43,8 @@ pub fn render(f: &mut Frame, app: &App) {
                     bat_types::session::SubagentStatus::Completed => "✅",
                     bat_types::session::SubagentStatus::Failed => "❌",
                     bat_types::session::SubagentStatus::Cancelled => "⏹ ",
+                    bat_types::session::SubagentStatus::TimedOut => "⏰",
+                    bat_types::session::SubagentStatus::Archived => "📦",
                 };
                 let style = if i == app.activity_cursor {
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
@@ -67,6 +69,8 @@ pub fn render(f: &mut Frame, app: &App) {
                 bat_types::session::SubagentStatus::Completed => Color::Green,
                 bat_types::session::SubagentStatus::Failed => Color::Red,
                 bat_types::session::SubagentStatus::Cancelled => Color::DarkGray,
+                bat_types::session::SubagentStatus::TimedOut => Color::LightRed,
+                bat_types::session::SubagentStatus::Archived => Color::DarkGray,
             };
 
             let mut lines = vec![

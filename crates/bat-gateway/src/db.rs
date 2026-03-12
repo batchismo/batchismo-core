@@ -861,6 +861,10 @@ impl Database {
                 Some("completed") => SubagentStatus::Completed,
                 Some("failed") => SubagentStatus::Failed,
                 Some("cancelled") => SubagentStatus::Cancelled,
+                Some("timed_out") => SubagentStatus::TimedOut,
+                Some("archived") => SubagentStatus::Archived,
+                Some("waiting_for_answer") => SubagentStatus::WaitingForAnswer,
+                Some("paused") => SubagentStatus::Paused,
                 _ => SubagentStatus::Running,
             };
             result.push(SubagentInfo {
@@ -875,6 +879,50 @@ impl Database {
                 token_input: tok_in,
                 token_output: tok_out,
             });
+        }
+        Ok(result)
+    }
+
+    /// Count currently running subagents (across all parent sessions).
+    pub fn count_running_subagents(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE kind = 'subagent' AND subagent_status = 'running'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Get running subagent sessions older than the given duration.
+    pub fn get_timed_out_subagents(&self, timeout_minutes: u32) -> Result<Vec<(Uuid, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let cutoff = (Utc::now() - chrono::Duration::minutes(timeout_minutes as i64)).to_rfc3339();
+        let mut stmt = conn.prepare(
+            "SELECT id, key FROM sessions WHERE kind = 'subagent' AND subagent_status = 'running' AND created_at < ?1"
+        )?;
+        let rows = stmt.query_map(params![cutoff], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            let (id_str, key) = row?;
+            result.push((id_str.parse().unwrap_or_default(), key));
+        }
+        Ok(result)
+    }
+
+    /// Get completed/failed/cancelled subagent sessions older than the given hours.
+    pub fn get_archivable_subagents(&self, hours: u32) -> Result<Vec<Uuid>> {
+        let conn = self.conn.lock().unwrap();
+        let cutoff = (Utc::now() - chrono::Duration::hours(hours as i64)).to_rfc3339();
+        let mut stmt = conn.prepare(
+            "SELECT id FROM sessions WHERE kind = 'subagent' AND subagent_status IN ('completed', 'failed', 'cancelled', 'timed_out') AND updated_at < ?1"
+        )?;
+        let rows = stmt.query_map(params![cutoff], |row| row.get::<_, String>(0))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?.parse().unwrap_or_default());
         }
         Ok(result)
     }
