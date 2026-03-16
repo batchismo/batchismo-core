@@ -58,6 +58,16 @@ pub struct ElevenLabsVoice {
     pub preview_url: Option<String>,
 }
 
+/// An Ollama model entry (returned to the UI for model picker).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OllamaModel {
+    pub name: String,
+    pub size: u64,
+    pub modified_at: Option<String>,
+    pub parameter_size: Option<String>,
+}
+
 /// Shared state for routing agent questions through the active Telegram channel.
 /// Created once per `start_channels()` call and threaded through `run_agent_turn`.
 struct TelegramState {
@@ -269,10 +279,9 @@ impl Gateway {
                         let user_msg = bat_types::message::Message::user(session.id, &msg.text);
                         let _ = session_manager.append_message(&user_msg);
 
-                        let (cfg_model, disabled_tools, api_key) = {
+                        let (cfg_model, disabled_tools, agent_env) = {
                             let cfg = config.read().unwrap();
-                            let key = cfg.api_keys.anthropic_key().unwrap_or_default();
-                            (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), key)
+                            (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), build_agent_env(&cfg))
                         };
                         let system_prompt = {
                             let cfg = config.read().unwrap();
@@ -299,7 +308,7 @@ impl Gateway {
                         tokio::spawn(async move {
                             let result = run_agent_turn(
                                 session.id, cfg_model, system_prompt, history, msg.text,
-                                path_policies, disabled_tools, api_key,
+                                path_policies, disabled_tools, agent_env,
                                 eb, sm, db2, pm, cfg2,
                                 "main".to_string(),  // Telegram sessions are main/orchestrator
                                 Some(tg_state),
@@ -370,21 +379,17 @@ impl Gateway {
             .context("Failed to get path policies")?;
 
         // Read config once under lock
-        let (model, disabled_tools, api_key) = {
+        let (model, disabled_tools, agent_env) = {
             let cfg = self.config.read().unwrap();
-            let key = cfg.api_keys.anthropic_key();
             (
                 cfg.agent.model.clone(),
                 cfg.agent.disabled_tools.clone(),
-                key,
+                build_agent_env(&cfg),
             )
         };
 
-        let api_key = api_key.ok_or_else(|| {
-            anyhow::anyhow!(
-                "No Anthropic API key found. Add it in Settings → API Keys or set ANTHROPIC_API_KEY env var."
-            )
-        })?;
+        // Validate that the required API key is available for the chosen model's provider
+        validate_provider_key(&model, &agent_env)?;
 
         let system_prompt = {
             let cfg = self.config.read().unwrap();
@@ -438,7 +443,7 @@ impl Gateway {
 
             let is_main = session_kind == "main";
             let user_msg_for_reflection = if is_main { Some(content_owned.clone()) } else { None };
-            let api_key_for_reflection = if is_main { Some(api_key.clone()) } else { None };
+            let anthropic_key_for_reflection = if is_main { agent_env.anthropic_key.clone() } else { None };
             let model_for_reflection = if is_main { Some(model.clone()) } else { None };
 
             // Clone for post-turn usage (reflection + auto-consolidation)
@@ -453,7 +458,7 @@ impl Gateway {
                 content_owned,
                 path_policies,
                 disabled_tools,
-                api_key,
+                agent_env,
                 event_bus.clone(),
                 session_manager.clone(),
                 db,
@@ -468,7 +473,7 @@ impl Gateway {
                 event_bus.send(AgentToGateway::Error {
                     message: format!("Agent error: {e}"),
                 });
-            } else if let (Some(user_msg), Some(key), Some(mdl)) = (user_msg_for_reflection, api_key_for_reflection, model_for_reflection) {
+            } else if let (Some(user_msg), Some(key), Some(mdl)) = (user_msg_for_reflection, anthropic_key_for_reflection, model_for_reflection) {
                 // Post-turn reflection: check if anything is worth remembering
                 info!("Running post-turn reflection for main session");
                 match session_manager.get_history(session.id) {
@@ -781,6 +786,51 @@ impl Gateway {
     /// Check if onboarding has been completed.
     pub fn is_onboarding_complete(&self) -> bool {
         self.config.read().unwrap().agent.onboarding_complete
+    }
+
+    // ─── Ollama ────────────────────────────────────────────────────────────
+
+    /// Check Ollama connectivity and list available models.
+    pub async fn ollama_list_models(&self) -> Result<Vec<OllamaModel>> {
+        let endpoint = self.config.read().unwrap().api_keys.ollama_endpoint();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+        let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
+        let resp = client.get(&url).send().await
+            .context("Failed to connect to Ollama")?;
+        if !resp.status().is_success() {
+            anyhow::bail!("Ollama returned status {}", resp.status());
+        }
+        let body: serde_json::Value = resp.json().await?;
+        let models = body.get("models").and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter().filter_map(|m| {
+                    let name = m.get("name")?.as_str()?.to_string();
+                    let size = m.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let modified_at = m.get("modified_at").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let parameter_size = m.get("details")
+                        .and_then(|d| d.get("parameter_size"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    Some(OllamaModel { name, size, modified_at, parameter_size })
+                }).collect()
+            })
+            .unwrap_or_default();
+        Ok(models)
+    }
+
+    /// Check if Ollama is reachable.
+    pub async fn ollama_status(&self) -> Result<bool> {
+        let endpoint = self.config.read().unwrap().api_keys.ollama_endpoint();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()?;
+        let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
+        match client.get(&url).send().await {
+            Ok(resp) => Ok(resp.status().is_success()),
+            Err(_) => Ok(false),
+        }
     }
 
     /// Validate an Anthropic API key by making a minimal API call.
@@ -1144,11 +1194,11 @@ fn handle_subagent_action(
     match action {
         ProcessAction::SpawnSubagent { task, label } => {
             let label = label.unwrap_or_else(|| task.chars().take(40).collect::<String>());
-            let (model, api_key_resolved, disabled_tools_base) = {
+            let (model, sub_agent_env, disabled_tools_base) = {
                 let cfg = config.read().unwrap();
                 (
                     cfg.agent.model.clone(),
-                    cfg.api_keys.anthropic_key(),
+                    build_agent_env(&cfg),
                     cfg.agent.disabled_tools.clone(),
                 )
             };
@@ -1166,7 +1216,6 @@ fn handle_subagent_action(
                                 format!("You are a subagent. Complete this task: {task}")
                             })
                     };
-                    let api_key = api_key_resolved.unwrap_or_default();
                     let mut disabled_tools = disabled_tools_base;
                     disabled_tools.push("session_spawn".to_string());
 
@@ -1181,7 +1230,7 @@ fn handle_subagent_action(
                         info!("Subagent starting: key={sub_key}, task={}", &task[..task.len().min(60)]);
                         let result = run_agent_turn(
                             sub_id, model, sub_prompt, vec![], task.clone(),
-                            path_policies, disabled_tools, api_key,
+                            path_policies, disabled_tools, sub_agent_env,
                             eb.clone(), sm, db2.clone(), pm, cfg2,
                             "subagent".to_string(),  // This is a subagent/worker session
                             tg_state,
@@ -1372,7 +1421,7 @@ async fn run_agent_turn(
     user_content: String,
     path_policies: Vec<PathPolicy>,
     disabled_tools: Vec<String>,
-    api_key: String,
+    agent_env: ipc::AgentEnv,
     event_bus: EventBus,
     session_manager: Arc<SessionManager>,
     db: Arc<Database>,
@@ -1397,7 +1446,7 @@ async fn run_agent_turn(
     info!("Created pipe: {}", pipe_name);
 
     // 2. Spawn the agent child process
-    let child = ipc::spawn_agent(&pipe_name, &api_key)
+    let child = ipc::spawn_agent(&pipe_name, &agent_env)
         .context("Failed to spawn bat-agent")?;
 
     let pid = child.id().unwrap_or(0);
@@ -1574,5 +1623,39 @@ async fn run_agent_turn(
         }
     }
 
+    Ok(())
+}
+
+/// Build the environment variables for the agent process from config.
+fn build_agent_env(cfg: &BatConfig) -> ipc::AgentEnv {
+    ipc::AgentEnv {
+        anthropic_key: cfg.api_keys.anthropic_key(),
+        openai_key: cfg.api_keys.openai_key(),
+        ollama_endpoint: Some(cfg.api_keys.ollama_endpoint()),
+    }
+}
+
+/// Validate that the required API key is available for the model's provider.
+fn validate_provider_key(model: &str, env: &ipc::AgentEnv) -> Result<()> {
+    use bat_types::config::{ApiKeys, LlmProvider};
+    match ApiKeys::provider_for_model(model) {
+        LlmProvider::Anthropic => {
+            if env.anthropic_key.as_ref().map_or(true, |k| k.is_empty()) {
+                anyhow::bail!(
+                    "No Anthropic API key found. Add it in Settings → API Keys or set ANTHROPIC_API_KEY env var."
+                );
+            }
+        }
+        LlmProvider::OpenAI => {
+            if env.openai_key.as_ref().map_or(true, |k| k.is_empty()) {
+                anyhow::bail!(
+                    "No OpenAI API key found. Add it in Settings → API Keys or set OPENAI_API_KEY env var."
+                );
+            }
+        }
+        LlmProvider::Ollama => {
+            // Ollama doesn't need an API key — just an endpoint
+        }
+    }
     Ok(())
 }

@@ -133,14 +133,30 @@ pub async fn wait_for_agent(server: platform::PipeServer) -> Result<AgentPipe> {
     Ok(AgentPipe { writer, reader })
 }
 
+/// Environment variables to pass to the agent for LLM provider configuration.
+pub struct AgentEnv {
+    pub anthropic_key: Option<String>,
+    pub openai_key: Option<String>,
+    pub ollama_endpoint: Option<String>,
+}
+
 /// Spawn the bat-agent child process, pointed at the given pipe/socket.
-/// The API key is passed via environment variable.
-pub fn spawn_agent(pipe_name: &str, api_key: &str) -> Result<tokio::process::Child> {
+/// Provider credentials are passed via environment variables.
+pub fn spawn_agent(pipe_name: &str, env: &AgentEnv) -> Result<tokio::process::Child> {
     let agent_exe = find_agent_binary()?;
     let mut cmd = tokio::process::Command::new(&agent_exe);
     cmd.arg("--pipe")
-        .arg(pipe_name)
-        .env("ANTHROPIC_API_KEY", api_key);
+        .arg(pipe_name);
+
+    if let Some(ref key) = env.anthropic_key {
+        cmd.env("ANTHROPIC_API_KEY", key);
+    }
+    if let Some(ref key) = env.openai_key {
+        cmd.env("OPENAI_API_KEY", key);
+    }
+    if let Some(ref endpoint) = env.ollama_endpoint {
+        cmd.env("OLLAMA_ENDPOINT", endpoint);
+    }
 
     // Capture stderr so we can log agent errors
     cmd.stderr(std::process::Stdio::piped());

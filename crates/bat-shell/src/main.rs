@@ -129,6 +129,8 @@ fn main() {
             commands::get_active_session_key,
             commands::get_usage_stats,
             commands::fetch_elevenlabs_voices,
+            commands::ollama_list_models,
+            commands::ollama_status,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Batchismo");

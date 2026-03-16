@@ -7,6 +7,7 @@ import { AboutPage } from './AboutPage'
 import { ChannelsPage } from './ChannelsPage'
 import { VoicePage } from './VoicePage'
 import { ApiKeysPage } from './ApiKeysPage'
+import { OllamaPage } from './OllamaPage'
 import { PersonalityPage } from './PersonalityPage'
 
 interface NavItem {
@@ -22,6 +23,15 @@ const NAV_ITEMS: NavItem[] = [
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'ollama',
+    label: 'Local LLM',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
       </svg>
     ),
   },
@@ -123,6 +133,7 @@ export function SettingsPanel() {
       {/* Page content */}
       <div className="flex-1 overflow-y-auto p-6">
         {activePage === 'api-keys' && <ApiKeysPage />}
+        {activePage === 'ollama' && <OllamaPage />}
         {activePage === 'path-policies' && <PathPoliciesPage />}
         {activePage === 'tools' && <ToolsPage />}
         {activePage === 'agent-config' && <AgentConfigPage />}
