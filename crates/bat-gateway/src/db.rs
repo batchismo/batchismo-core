@@ -10,6 +10,8 @@ use bat_types::memory::{Observation, ObservationFilter, ObservationKind, Observa
 use bat_types::message::Message;
 use bat_types::session::{SessionKind, SessionMeta, SessionStatus, SubagentInfo, SubagentStatus};
 use bat_types::usage::{UsageStats, SessionUsage, ModelUsage, estimate_cost};
+use crate::cost_governor::{DailyUsage, ModelUsage as CostModelUsage, SessionUsage as CostSessionUsage};
+use std::collections::HashMap;
 use bat_types::policy::{PathPolicy, AccessLevel};
 
 pub struct Database {
@@ -107,7 +109,33 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_obs_kind ON observations(kind);
             CREATE INDEX IF NOT EXISTS idx_obs_key ON observations(key);
-            CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);"
+            CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);
+
+            CREATE TABLE IF NOT EXISTS daily_usage (
+                date            TEXT PRIMARY KEY,
+                total_cost_usd  REAL NOT NULL DEFAULT 0.0,
+                model_usage     TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS session_usage (
+                session_id      TEXT PRIMARY KEY REFERENCES sessions(id),
+                total_cost_usd  REAL NOT NULL DEFAULT 0.0,
+                model_usage     TEXT NOT NULL DEFAULT '{}',
+                started_at      TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS token_usage (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT NOT NULL REFERENCES sessions(id),
+                model           TEXT NOT NULL,
+                input_tokens    INTEGER NOT NULL,
+                output_tokens   INTEGER NOT NULL,
+                cost_usd        REAL NOT NULL,
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_token_usage_session ON token_usage(session_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(model, created_at);
+            CREATE INDEX IF NOT EXISTS idx_token_usage_date ON token_usage(date(created_at));"
         )?;
 
         // Migration: add images_json column to messages (safe if it already exists)
@@ -288,6 +316,192 @@ impl Database {
             params![input, output, Utc::now().to_rfc3339(), session_id.to_string()],
         )?;
         Ok(())
+    }
+
+    // --- Cost Governance ---
+
+    /// Record token usage with cost calculation for cost governance.
+    pub fn record_token_usage(
+        &self,
+        session_id: Uuid,
+        model: &str,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f32,
+    ) -> Result<()> {
+        let now = Utc::now();
+        let conn = self.conn.lock().unwrap();
+        
+        // Insert the raw usage record
+        conn.execute(
+            "INSERT INTO token_usage (session_id, model, input_tokens, output_tokens, cost_usd, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                session_id.to_string(),
+                model,
+                input_tokens,
+                output_tokens,
+                cost,
+                now.to_rfc3339(),
+            ],
+        )?;
+
+        // Update daily usage aggregates
+        let date = now.format("%Y-%m-%d").to_string();
+        self.update_daily_usage(&date, model, input_tokens, output_tokens, cost)?;
+        
+        // Update session usage aggregates
+        self.update_session_usage(session_id, model, input_tokens, output_tokens, cost)?;
+        
+        Ok(())
+    }
+
+    fn update_daily_usage(
+        &self,
+        date: &str,
+        model: &str,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f32,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        
+        // Get existing daily usage
+        let mut existing_usage: HashMap<String, CostModelUsage> = conn
+            .prepare("SELECT model_usage FROM daily_usage WHERE date = ?1")?
+            .query_row(params![date], |row| {
+                let json_str: String = row.get(0)?;
+                Ok(serde_json::from_str(&json_str).unwrap_or_default())
+            })
+            .unwrap_or_default();
+        
+        // Update model usage
+        existing_usage
+            .entry(model.to_string())
+            .or_insert_with(CostModelUsage::new)
+            .add_usage(input_tokens, output_tokens, cost);
+        
+        let total_cost: f32 = existing_usage.values().map(|u| u.total_cost_usd).sum();
+        let model_usage_json = serde_json::to_string(&existing_usage)?;
+        
+        // Upsert daily usage
+        conn.execute(
+            "INSERT INTO daily_usage (date, total_cost_usd, model_usage)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(date) DO UPDATE SET
+                total_cost_usd = ?2,
+                model_usage = ?3",
+            params![date, total_cost, model_usage_json],
+        )?;
+        
+        Ok(())
+    }
+
+    fn update_session_usage(
+        &self,
+        session_id: Uuid,
+        model: &str,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f32,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        
+        // Get existing session usage
+        let mut existing_usage: HashMap<String, CostModelUsage> = conn
+            .prepare("SELECT model_usage FROM session_usage WHERE session_id = ?1")?
+            .query_row(params![session_id.to_string()], |row| {
+                let json_str: String = row.get(0)?;
+                Ok(serde_json::from_str(&json_str).unwrap_or_default())
+            })
+            .unwrap_or_default();
+        
+        // Update model usage
+        existing_usage
+            .entry(model.to_string())
+            .or_insert_with(CostModelUsage::new)
+            .add_usage(input_tokens, output_tokens, cost);
+        
+        let total_cost: f32 = existing_usage.values().map(|u| u.total_cost_usd).sum();
+        let model_usage_json = serde_json::to_string(&existing_usage)?;
+        let now = Utc::now();
+        
+        // Upsert session usage
+        conn.execute(
+            "INSERT INTO session_usage (session_id, total_cost_usd, model_usage, started_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(session_id) DO UPDATE SET
+                total_cost_usd = ?2,
+                model_usage = ?3",
+            params![session_id.to_string(), total_cost, model_usage_json, now.to_rfc3339()],
+        )?;
+        
+        Ok(())
+    }
+
+    /// Get daily usage for a specific date.
+    pub fn get_daily_usage(&self, date: &str) -> Result<Option<DailyUsage>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn
+            .prepare("SELECT date, total_cost_usd, model_usage FROM daily_usage WHERE date = ?1")?
+            .query_row(params![date], |row| {
+                let model_usage_json: String = row.get(2)?;
+                let model_usage: HashMap<String, CostModelUsage> = 
+                    serde_json::from_str(&model_usage_json).unwrap_or_default();
+                
+                Ok(DailyUsage {
+                    date: row.get(0)?,
+                    total_cost_usd: row.get(1)?,
+                    model_usage,
+                })
+            });
+        
+        match result {
+            Ok(usage) => Ok(Some(usage)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Get session usage for a specific session.
+    pub fn get_session_usage(&self, session_id: Uuid) -> Result<Option<CostSessionUsage>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn
+            .prepare("SELECT session_id, total_cost_usd, model_usage, started_at FROM session_usage WHERE session_id = ?1")?
+            .query_row(params![session_id.to_string()], |row| {
+                let model_usage_json: String = row.get(2)?;
+                let model_usage: HashMap<String, CostModelUsage> = 
+                    serde_json::from_str(&model_usage_json).unwrap_or_default();
+                let started_at_str: String = row.get(3)?;
+                let started_at = chrono::DateTime::parse_from_rfc3339(&started_at_str)
+                    .map_err(|e| rusqlite::Error::InvalidColumnType(3, started_at_str.clone(), rusqlite::types::Type::Text))?
+                    .with_timezone(&Utc);
+                
+                Ok(CostSessionUsage {
+                    session_id: Uuid::parse_str(&row.get::<_, String>(0)?)
+                        .map_err(|e| rusqlite::Error::InvalidColumnType(0, "invalid uuid".to_string(), rusqlite::types::Type::Text))?,
+                    total_cost_usd: row.get(1)?,
+                    model_usage,
+                    started_at,
+                })
+            });
+        
+        match result {
+            Ok(usage) => Ok(Some(usage)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Get total usage cost since a specific date.
+    pub fn get_usage_since(&self, since: chrono::DateTime<Utc>) -> Result<f32> {
+        let conn = self.conn.lock().unwrap();
+        let since_str = since.to_rfc3339();
+        let cost: Option<f32> = conn
+            .prepare("SELECT SUM(cost_usd) FROM token_usage WHERE created_at >= ?1")?
+            .query_row(params![since_str], |row| row.get(0))?;
+        
+        Ok(cost.unwrap_or(0.0))
     }
 
     // --- Messages ---

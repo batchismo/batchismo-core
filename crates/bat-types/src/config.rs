@@ -123,6 +123,55 @@ pub struct ModelRoutingConfig {
     /// If None, falls back to the default model.
     #[serde(default)]
     pub memory_consolidation: Option<String>,
+    /// Routing strategy for automatic model selection.
+    #[serde(default)]
+    pub routing_strategy: RoutingStrategy,
+    /// Daily budget limit in USD. If None, no budget limit.
+    #[serde(default)]
+    pub daily_budget_usd: Option<f32>,
+    /// Per-session budget limit in USD. If None, no session limit.
+    #[serde(default)]
+    pub session_budget_usd: Option<f32>,
+}
+
+/// Routing strategy for automatic model selection based on request classification.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RoutingStrategy {
+    /// Always use the most cost-effective model capable of handling the request.
+    CostOptimized,
+    /// Always use the most capable model available.
+    QualityOptimized,
+    /// Balance cost and capability based on request complexity.
+    Balanced,
+    /// Use manual per-task-type routing (existing Track 3 behavior).
+    Manual,
+}
+
+impl Default for RoutingStrategy {
+    fn default() -> Self {
+        RoutingStrategy::Balanced
+    }
+}
+
+impl RoutingStrategy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RoutingStrategy::CostOptimized => "cost_optimized",
+            RoutingStrategy::QualityOptimized => "quality_optimized",
+            RoutingStrategy::Balanced => "balanced",
+            RoutingStrategy::Manual => "manual",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "cost_optimized" => Ok(RoutingStrategy::CostOptimized),
+            "quality_optimized" => Ok(RoutingStrategy::QualityOptimized),
+            "balanced" => Ok(RoutingStrategy::Balanced),
+            "manual" => Ok(RoutingStrategy::Manual),
+            _ => Err(format!("Invalid routing strategy: {}", s)),
+        }
+    }
 }
 
 impl Default for ModelRoutingConfig {
@@ -131,6 +180,9 @@ impl Default for ModelRoutingConfig {
             main_chat: None,
             subagents: None,
             memory_consolidation: None,
+            routing_strategy: RoutingStrategy::default(),
+            daily_budget_usd: None,
+            session_budget_usd: None,
         }
     }
 }
@@ -153,8 +205,126 @@ impl TaskType {
     }
 }
 
+/// Model cost and capability information for routing decisions.
+#[derive(Debug, Clone)]
+pub struct ModelInfo {
+    pub id: String,
+    pub provider: LlmProvider,
+    /// Cost per 1K input tokens in USD.
+    pub cost_per_1k_input: f32,
+    /// Cost per 1K output tokens in USD.
+    pub cost_per_1k_output: f32,
+    /// Capability score (0-100) - higher is more capable.
+    pub capability_score: u8,
+    /// Context window size in tokens.
+    pub context_window: u32,
+    /// Whether this model supports tool use.
+    pub supports_tools: bool,
+}
+
+impl ModelInfo {
+    /// Get model information for known models.
+    pub fn for_model(model_id: &str) -> Option<ModelInfo> {
+        match model_id {
+            // Anthropic models
+            "claude-opus-4-6" => Some(ModelInfo {
+                id: model_id.to_string(),
+                provider: LlmProvider::Anthropic,
+                cost_per_1k_input: 0.015,
+                cost_per_1k_output: 0.075,
+                capability_score: 95,
+                context_window: 200_000,
+                supports_tools: true,
+            }),
+            "claude-sonnet-4-6" => Some(ModelInfo {
+                id: model_id.to_string(),
+                provider: LlmProvider::Anthropic,
+                cost_per_1k_input: 0.003,
+                cost_per_1k_output: 0.015,
+                capability_score: 85,
+                context_window: 200_000,
+                supports_tools: true,
+            }),
+            "claude-haiku-4-5-20251001" => Some(ModelInfo {
+                id: model_id.to_string(),
+                provider: LlmProvider::Anthropic,
+                cost_per_1k_input: 0.0008,
+                cost_per_1k_output: 0.004,
+                capability_score: 70,
+                context_window: 200_000,
+                supports_tools: true,
+            }),
+            // OpenAI models
+            "gpt-4o" => Some(ModelInfo {
+                id: model_id.to_string(),
+                provider: LlmProvider::OpenAI,
+                cost_per_1k_input: 0.0025,
+                cost_per_1k_output: 0.01,
+                capability_score: 90,
+                context_window: 128_000,
+                supports_tools: true,
+            }),
+            "gpt-4o-mini" => Some(ModelInfo {
+                id: model_id.to_string(),
+                provider: LlmProvider::OpenAI,
+                cost_per_1k_input: 0.00015,
+                cost_per_1k_output: 0.0006,
+                capability_score: 75,
+                context_window: 128_000,
+                supports_tools: true,
+            }),
+            "o3-mini" => Some(ModelInfo {
+                id: model_id.to_string(),
+                provider: LlmProvider::OpenAI,
+                cost_per_1k_input: 0.003,
+                cost_per_1k_output: 0.015,
+                capability_score: 80,
+                context_window: 128_000,
+                supports_tools: false, // Reasoning models may not support tools initially
+            }),
+            _ => {
+                // Local/Ollama models - assume free but lower capability
+                if ApiKeys::provider_for_model(model_id) == LlmProvider::Ollama {
+                    Some(ModelInfo {
+                        id: model_id.to_string(),
+                        provider: LlmProvider::Ollama,
+                        cost_per_1k_input: 0.0, // Local models are free
+                        cost_per_1k_output: 0.0,
+                        capability_score: 60, // Conservative estimate
+                        context_window: 32_000, // Typical for local models
+                        supports_tools: true, // Most local models support function calling
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Calculate the cost score for routing (lower is better for cost optimization).
+    pub fn cost_score(&self) -> f32 {
+        // Weight input and output costs (assume 3:1 input:output ratio)
+        (self.cost_per_1k_input * 3.0 + self.cost_per_1k_output) / 4.0
+    }
+
+    /// Calculate a balanced score combining cost and capability.
+    pub fn balanced_score(&self) -> f32 {
+        // Higher capability score and lower cost score is better
+        let normalized_capability = self.capability_score as f32 / 100.0;
+        let normalized_cost = if self.cost_score() > 0.0 {
+            1.0 / (1.0 + self.cost_score() * 100.0) // Invert so lower cost = higher score
+        } else {
+            1.0 // Free models get max cost score
+        };
+        
+        // Weight 60% capability, 40% cost efficiency
+        (normalized_capability * 0.6) + (normalized_cost * 0.4)
+    }
+}
+
 impl ModelRoutingConfig {
     /// Get the model for a specific task type, falling back to the default if not configured.
+    /// This method handles manual routing (Track 3 behavior).
     pub fn model_for_task(&self, task_type: TaskType, default_model: &str) -> String {
         match task_type {
             TaskType::MainChat => {
@@ -167,6 +337,192 @@ impl ModelRoutingConfig {
                 self.memory_consolidation.clone().unwrap_or_else(|| default_model.to_string())
             }
         }
+    }
+
+    /// Get the best model for a request using the configured routing strategy.
+    /// Falls back to manual routing if classification or model selection fails.
+    pub fn model_for_request(
+        &self,
+        classification: &crate::classifier::RequestClassification,
+        task_type: TaskType,
+        available_models: &[String],
+        default_model: &str,
+        current_daily_usage: f32,
+        current_session_usage: f32,
+    ) -> String {
+        // If using manual routing, use the existing logic
+        if self.routing_strategy == RoutingStrategy::Manual {
+            return self.model_for_task(task_type, default_model);
+        }
+
+        // Check budget constraints and determine if we need to use cheaper models
+        let budget_constrained = self.is_budget_constrained(current_daily_usage, current_session_usage);
+
+        // Get model info for available models
+        let model_infos: Vec<ModelInfo> = available_models
+            .iter()
+            .filter_map(|model| ModelInfo::for_model(model))
+            .collect();
+
+        if model_infos.is_empty() {
+            // Fallback to manual routing if no model info available
+            return self.model_for_task(task_type, default_model);
+        }
+
+        // Select model based on routing strategy
+        let selected_model = match self.routing_strategy {
+            RoutingStrategy::CostOptimized => {
+                self.select_cost_optimized(&model_infos, classification, budget_constrained)
+            }
+            RoutingStrategy::QualityOptimized => {
+                self.select_quality_optimized(&model_infos, classification, budget_constrained)
+            }
+            RoutingStrategy::Balanced => {
+                self.select_balanced(&model_infos, classification, budget_constrained)
+            }
+            RoutingStrategy::Manual => {
+                // Already handled above, but keep for completeness
+                return self.model_for_task(task_type, default_model);
+            }
+        };
+
+        selected_model.unwrap_or_else(|| default_model.to_string())
+    }
+
+    /// Check if budget constraints should downgrade model selection.
+    fn is_budget_constrained(&self, daily_usage: f32, session_usage: f32) -> bool {
+        if let Some(daily_limit) = self.daily_budget_usd {
+            if daily_usage >= daily_limit * 0.8 { // 80% of daily budget
+                return true;
+            }
+        }
+        
+        if let Some(session_limit) = self.session_budget_usd {
+            if session_usage >= session_limit * 0.8 { // 80% of session budget
+                return true;
+            }
+        }
+        
+        false
+    }
+
+    /// Select the most cost-effective model that can handle the request.
+    fn select_cost_optimized(
+        &self,
+        models: &[ModelInfo],
+        classification: &crate::classifier::RequestClassification,
+        budget_constrained: bool,
+    ) -> Option<String> {
+        let mut suitable_models: Vec<&ModelInfo> = models
+            .iter()
+            .filter(|model| self.model_meets_requirements(model, classification))
+            .collect();
+
+        if budget_constrained {
+            // Prefer free models when budget constrained
+            suitable_models.sort_by(|a, b| a.cost_score().partial_cmp(&b.cost_score()).unwrap());
+        } else {
+            // Sort by cost, then capability as tiebreaker
+            suitable_models.sort_by(|a, b| {
+                match a.cost_score().partial_cmp(&b.cost_score()) {
+                    Some(std::cmp::Ordering::Equal) => {
+                        b.capability_score.cmp(&a.capability_score)
+                    }
+                    Some(order) => order,
+                    None => std::cmp::Ordering::Equal,
+                }
+            });
+        }
+
+        suitable_models.first().map(|model| model.id.clone())
+    }
+
+    /// Select the most capable model available.
+    fn select_quality_optimized(
+        &self,
+        models: &[ModelInfo],
+        classification: &crate::classifier::RequestClassification,
+        budget_constrained: bool,
+    ) -> Option<String> {
+        let mut suitable_models: Vec<&ModelInfo> = models
+            .iter()
+            .filter(|model| self.model_meets_requirements(model, classification))
+            .collect();
+
+        if budget_constrained {
+            // When budget constrained, prefer free models but still prioritize capability among them
+            suitable_models.sort_by(|a, b| {
+                match a.cost_score().partial_cmp(&b.cost_score()) {
+                    Some(std::cmp::Ordering::Equal) => {
+                        b.capability_score.cmp(&a.capability_score)
+                    }
+                    Some(order) => order,
+                    None => std::cmp::Ordering::Equal,
+                }
+            });
+        } else {
+            // Sort by capability score (highest first)
+            suitable_models.sort_by(|a, b| b.capability_score.cmp(&a.capability_score));
+        }
+
+        suitable_models.first().map(|model| model.id.clone())
+    }
+
+    /// Select a balanced model based on cost and capability.
+    fn select_balanced(
+        &self,
+        models: &[ModelInfo],
+        classification: &crate::classifier::RequestClassification,
+        budget_constrained: bool,
+    ) -> Option<String> {
+        let mut suitable_models: Vec<&ModelInfo> = models
+            .iter()
+            .filter(|model| self.model_meets_requirements(model, classification))
+            .collect();
+
+        if budget_constrained {
+            // When budget constrained, strongly favor cost over capability
+            suitable_models.sort_by(|a, b| {
+                let score_a = if a.cost_score() == 0.0 { 1.0 } else { 0.3 }; // Free models get high priority
+                let score_b = if b.cost_score() == 0.0 { 1.0 } else { 0.3 };
+                score_b.partial_cmp(&score_a).unwrap()
+            });
+        } else {
+            // Sort by balanced score (highest first)
+            suitable_models.sort_by(|a, b| {
+                b.balanced_score().partial_cmp(&a.balanced_score()).unwrap()
+            });
+        }
+
+        suitable_models.first().map(|model| model.id.clone())
+    }
+
+    /// Check if a model meets the requirements of the request classification.
+    fn model_meets_requirements(
+        &self,
+        model: &ModelInfo,
+        classification: &crate::classifier::RequestClassification,
+    ) -> bool {
+        use crate::classifier::{Capability, Complexity};
+
+        // Check tool use requirement
+        if classification.capabilities.contains(&Capability::ToolUse) && !model.supports_tools {
+            return false;
+        }
+
+        // Check context window requirement
+        if classification.capabilities.contains(&Capability::LongContext) && model.context_window < 32_000 {
+            return false;
+        }
+
+        // Check if model capability is sufficient for complexity
+        let min_capability_score = match classification.complexity {
+            Complexity::Simple => 60,
+            Complexity::Moderate => 70,
+            Complexity::Complex => 80,
+        };
+
+        model.capability_score >= min_capability_score
     }
 
     /// Set the model for a specific task type.

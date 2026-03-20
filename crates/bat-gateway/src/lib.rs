@@ -1,7 +1,9 @@
 pub mod channels;
+pub mod classifier;
 pub mod config;
 pub mod consolidation;
 pub mod correction;
+pub mod cost_governor;
 pub mod db;
 pub mod events;
 pub mod ipc;
@@ -507,14 +509,54 @@ impl Gateway {
             .get_path_policies()
             .context("Failed to get path policies")?;
 
+        // Classify the request for intelligent routing
+        let classification = classifier::RequestClassifier::classify(content, &images);
+        
         // Read config once under lock
         let (model, disabled_tools, agent_env) = {
             let cfg = self.config.read().unwrap();
-            // Use task-specific model routing for main chat
-            let task_model = cfg.agent.model_routing.model_for_task(
-                bat_types::config::TaskType::MainChat,
-                &cfg.agent.model,
-            );
+            
+            // Use intelligent model routing if not manual
+            let task_model = if cfg.agent.model_routing.routing_strategy == bat_types::config::RoutingStrategy::Manual {
+                // Use existing Track 3 manual routing
+                cfg.agent.model_routing.model_for_task(
+                    bat_types::config::TaskType::MainChat,
+                    &cfg.agent.model,
+                )
+            } else {
+                // Use intelligent routing based on request classification
+                let available_models = cfg.agent.enabled_models.iter()
+                    .chain(std::iter::once(&cfg.agent.model))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                
+                // Get current usage for budget consideration
+                let cost_governor = cost_governor::CostGovernor::new(Arc::clone(&self.db));
+                let daily_usage = cost_governor.get_daily_usage().unwrap_or_else(|_| {
+                    cost_governor::DailyUsage {
+                        date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+                        total_cost_usd: 0.0,
+                        model_usage: std::collections::HashMap::new(),
+                    }
+                });
+                let session_usage = cost_governor.get_session_usage(session.id)
+                    .unwrap_or_else(|_| cost_governor::SessionUsage {
+                        session_id: session.id,
+                        total_cost_usd: 0.0,
+                        model_usage: std::collections::HashMap::new(),
+                        started_at: chrono::Utc::now(),
+                    });
+                
+                cfg.agent.model_routing.model_for_request(
+                    &classification,
+                    bat_types::config::TaskType::MainChat,
+                    &available_models,
+                    &cfg.agent.model,
+                    daily_usage.total_cost_usd,
+                    session_usage.total_cost_usd,
+                )
+            };
+            
             (
                 task_model,
                 cfg.agent.disabled_tools.clone(),
@@ -548,12 +590,19 @@ impl Gateway {
         let content_owned = content.to_string();
         let images_owned = images;
 
-        // Log the user message event
+        // Log the user message event with routing decision
         self.log_event(
             AuditLevel::Info,
             AuditCategory::Gateway,
             "user_message",
-            &format!("User message received ({} chars)", content.len()),
+            &format!(
+                "User message received ({} chars) → {} [{}|{}|{:?}]", 
+                content.len(), 
+                model,
+                classification.complexity.as_str(),
+                classification.domain.as_str(),
+                classification.capabilities.iter().map(|c| c.as_str()).collect::<Vec<_>>()
+            ),
             Some(&session.id.to_string()),
             None,
         );
@@ -1861,7 +1910,7 @@ async fn run_agent_turn(
     // 4. Send Init
     pipe.send(&GatewayToAgent::Init {
         session_id: session_id.to_string(),
-        model,
+        model: model.clone(),
         system_prompt,
         history,
         path_policies,
@@ -1952,6 +2001,17 @@ async fn run_agent_turn(
                         session_manager
                             .update_token_usage(session_id, inp, out)
                             .context("Failed to update token usage")?;
+                        
+                        // Record detailed usage with cost for cost governance
+                        let cost_governor = cost_governor::CostGovernor::new(db.clone());
+                        if let Err(e) = cost_governor.record_usage(
+                            session_id,
+                            &model,
+                            inp as u32,
+                            out as u32,
+                        ).await {
+                            warn!("Failed to record cost usage: {}", e);
+                        }
                     }
                 }
 

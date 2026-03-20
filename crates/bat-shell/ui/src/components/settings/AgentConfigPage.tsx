@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { BatConfig, OllamaModel, TaskType } from '../../types'
+import type { BatConfig, OllamaModel, TaskType, RoutingStrategy } from '../../types'
 import { TASK_TYPE_LABELS, TASK_TYPE_DESCRIPTIONS } from '../../types'
 import { getConfig, updateConfig, getSystemPrompt, ollamaListModels } from '../../lib/tauri'
 
@@ -314,11 +314,89 @@ export function AgentConfigPage() {
           </div>
         )}
 
-        {/* Model Routing */}
+        {/* Model Routing Strategy */}
         {availableModels.length > 0 && (
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-zinc-300">Model Routing</label>
+              <label className="block text-sm font-medium text-zinc-300">Routing Strategy</label>
+              <p className="text-xs text-zinc-500 mt-1">
+                Choose how requests are routed to different models.
+              </p>
+            </div>
+            <select
+              value={config.agent.model_routing.routing_strategy || 'balanced'}
+              onChange={e => updateAgent({
+                model_routing: {
+                  ...config.agent.model_routing,
+                  routing_strategy: e.target.value as RoutingStrategy,
+                },
+              })}
+              className="w-full bg-zinc-900 border border-zinc-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-zinc-400"
+            >
+              <option value="cost_optimized">Cost Optimized - Use cheapest capable model</option>
+              <option value="quality_optimized">Quality Optimized - Always use most capable model</option>
+              <option value="balanced">Balanced - Balance cost and capability (recommended)</option>
+              <option value="manual">Manual - Use per-task type routing below</option>
+            </select>
+          </div>
+        )}
+
+        {/* Cost Governor */}
+        {availableModels.length > 0 && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-zinc-300">Budget Limits</label>
+              <p className="text-xs text-zinc-500 mt-1">
+                Optional spending limits to control costs. Leave empty for no limits.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1.5">Daily Budget (USD)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={config.agent.model_routing.daily_budget_usd || ''}
+                  onChange={e => updateAgent({
+                    model_routing: {
+                      ...config.agent.model_routing,
+                      daily_budget_usd: e.target.value ? parseFloat(e.target.value) : null,
+                    },
+                  })}
+                  placeholder="No limit"
+                  className="w-full bg-zinc-900 border border-zinc-600 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1.5">Session Budget (USD)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={config.agent.model_routing.session_budget_usd || ''}
+                  onChange={e => updateAgent({
+                    model_routing: {
+                      ...config.agent.model_routing,
+                      session_budget_usd: e.target.value ? parseFloat(e.target.value) : null,
+                    },
+                  })}
+                  placeholder="No limit"
+                  className="w-full bg-zinc-900 border border-zinc-600 rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-400"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-zinc-500">
+              When approaching limits (80%), the system will downgrade to cheaper models. Hard limits are soft-capped (warn but don't block).
+            </p>
+          </div>
+        )}
+
+        {/* Manual Model Routing */}
+        {availableModels.length > 0 && config.agent.model_routing.routing_strategy === 'manual' && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-zinc-300">Per-Task Model Assignment</label>
               <p className="text-xs text-zinc-500 mt-1">
                 Assign different models to different task types. If not set, uses the default model.
               </p>
@@ -357,6 +435,25 @@ export function AgentConfigPage() {
                   </div>
                 )
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Routing Information */}
+        {availableModels.length > 0 && config.agent.model_routing.routing_strategy !== 'manual' && (
+          <div className="space-y-2">
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-medium text-zinc-300">🧠 Intelligent Routing</span>
+              </div>
+              <p className="text-xs text-zinc-500">
+                Requests are automatically classified by complexity, domain, and requirements, then routed to the optimal model based on your chosen strategy.
+              </p>
+              <div className="mt-2 text-xs text-zinc-400">
+                <div><strong>Simple:</strong> Basic questions → Fastest model</div>
+                <div><strong>Complex:</strong> Reasoning tasks → Most capable model</div>
+                <div><strong>Budget mode:</strong> Prefer free models when approaching limits</div>
+              </div>
             </div>
           </div>
         )}

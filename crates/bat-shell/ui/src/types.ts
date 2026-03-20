@@ -108,10 +108,15 @@ export interface AgentConfig {
   model_routing: ModelRoutingConfig
 }
 
+export type RoutingStrategy = 'cost_optimized' | 'quality_optimized' | 'balanced' | 'manual'
+
 export interface ModelRoutingConfig {
   main_chat: string | null
   subagents: string | null
   memory_consolidation: string | null
+  routing_strategy: RoutingStrategy
+  daily_budget_usd: number | null
+  session_budget_usd: number | null
 }
 
 export type TaskType = 'main_chat' | 'subagents' | 'memory_consolidation'
