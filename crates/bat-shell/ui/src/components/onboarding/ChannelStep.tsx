@@ -56,7 +56,7 @@ export function ChannelStep({ onNext, onBack, onSkip }: Props) {
           </p>
           
           {selectedChannel === 'telegram' && (
-            <div className="space-y-3">
+            <div className="space-y-3" onClick={e => e.stopPropagation()}>
               <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
                 <h4 className="text-sm font-medium text-white mb-2">Setup Instructions:</h4>
                 <ol className="text-xs text-zinc-400 space-y-1">
@@ -110,7 +110,7 @@ export function ChannelStep({ onNext, onBack, onSkip }: Props) {
           </p>
           
           {selectedChannel === 'discord' && (
-            <div className="space-y-3">
+            <div className="space-y-3" onClick={e => e.stopPropagation()}>
               <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
                 <h4 className="text-sm font-medium text-white mb-2">Setup Instructions:</h4>
                 <ol className="text-xs text-zinc-400 space-y-1">

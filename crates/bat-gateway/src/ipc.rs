@@ -158,8 +158,8 @@ pub fn spawn_agent(pipe_name: &str, env: &AgentEnv) -> Result<tokio::process::Ch
         cmd.env("OLLAMA_ENDPOINT", endpoint);
     }
 
-    // Capture stderr so we can log agent errors
-    cmd.stderr(std::process::Stdio::piped());
+    // Send stderr to parent terminal instead of buffering (prevents deadlock)
+    cmd.stderr(std::process::Stdio::inherit());
 
     // On Windows, prevent the agent from flashing a console window.
     #[cfg(target_os = "windows")]

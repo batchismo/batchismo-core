@@ -1868,7 +1868,7 @@ async fn run_agent_turn(
     info!("Created pipe: {}", pipe_name);
 
     // 2. Spawn the agent child process
-    let child = ipc::spawn_agent(&pipe_name, &agent_env)
+    let mut child = ipc::spawn_agent(&pipe_name, &agent_env)
         .context("Failed to spawn bat-agent")?;
 
     let pid = child.id().unwrap_or(0);
@@ -2041,16 +2041,14 @@ async fn run_agent_turn(
     }
 
     // 7. Wait for the child process to exit and capture stderr
-    let output = child.wait_with_output().await;
-    match output {
-        Ok(out) => {
-            let code = out.status.code().unwrap_or(-1);
+    let exit_status = child.wait().await;
+    match exit_status {
+        Ok(status) => {
+            let code = status.code().unwrap_or(-1);
             if code != 0 {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                error!("Agent process exited with code {}: {}", code, stderr.trim());
+                error!("Agent process exited with code {}", code);
                 audit(&db, &event_bus, AuditLevel::Error, AuditCategory::Agent, "agent_exit",
-                    &format!("Agent exited with code {code}"), Some(&sid),
-                    Some(&format!("{{\"stderr\":\"{}\"}}", stderr.trim().replace('"', "\\\""))));
+                    &format!("Agent exited with code {code}"), Some(&sid), None);
             } else {
                 info!("Agent process exited cleanly");
                 audit(&db, &event_bus, AuditLevel::Debug, AuditCategory::Agent, "agent_exit",
