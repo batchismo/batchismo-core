@@ -9,6 +9,7 @@ pub mod memory;
 pub mod process_manager;
 pub mod sandbox;
 pub mod session;
+pub mod skills;
 pub mod stt;
 pub mod reflection;
 pub mod system_prompt;
@@ -175,6 +176,8 @@ pub struct Gateway {
     last_consolidation_diffs: Arc<RwLock<Vec<consolidation::FileDiff>>>,
     /// Message router for inter-session communication.
     message_router: Arc<MessageRouter>,
+    /// Skill manager for loading and hot-reloading skills.
+    skill_manager: Arc<skills::SkillManager>,
 }
 
 impl Gateway {
@@ -185,6 +188,24 @@ impl Gateway {
             Arc::new(SessionManager::new(Arc::clone(&db), default_model));
         let event_bus = EventBus::new();
 
+        // Initialize skill manager
+        let workspace_path = crate::config::workspace_path();
+        let skill_manager = Arc::new(skills::SkillManager::new(workspace_path)?);
+
+        // Create example skills if the skills directory is empty
+        let skills_count = skill_manager.list_skills().len();
+        if skills_count == 0 {
+            let workspace_path = crate::config::workspace_path();
+            if let Err(e) = skills::create_example_skills(&workspace_path) {
+                warn!("Failed to create example skills: {}", e);
+            } else {
+                // Reload skills after creating examples
+                if let Err(e) = skill_manager.scan_and_load_skills() {
+                    warn!("Failed to reload skills after creating examples: {}", e);
+                }
+            }
+        }
+
         Ok(Self {
             session_manager,
             db,
@@ -194,6 +215,7 @@ impl Gateway {
             active_session_key: Arc::new(RwLock::new("main".to_string())),
             last_consolidation_diffs: Arc::new(RwLock::new(Vec::new())),
             message_router: Arc::new(MessageRouter::new()),
+            skill_manager,
         })
     }
 
@@ -294,7 +316,8 @@ impl Gateway {
                             let cfg = config.read().unwrap();
                             let policies = db.get_path_policies().unwrap_or_default();
                             // Telegram sessions are always main/orchestrator sessions
-                            crate::system_prompt::build_orchestrator_prompt(&cfg, &policies).unwrap_or_default()
+                            // TODO: Pass skills section from skill manager
+                            crate::system_prompt::build_orchestrator_prompt(&cfg, &policies, None).unwrap_or_default()
                         };
                         let path_policies = db.get_path_policies().unwrap_or_default();
 
@@ -360,6 +383,26 @@ impl Gateway {
                 });
 
                 info!("Telegram channel adapter started");
+            }
+        }
+
+        // Discord
+        if let Some(ref discord_cfg) = cfg.channels.discord {
+            if discord_cfg.enabled && !discord_cfg.bot_token.is_empty() {
+                let discord_config = channels::discord::DiscordConfig {
+                    bot_token: discord_cfg.bot_token.clone(),
+                    allow_from: discord_cfg.allow_from.clone(),
+                };
+                
+                let (_inbound_rx, _outbound_tx) = channels::discord::DiscordAdapter::start(discord_config);
+                
+                // TODO: Implement Discord message routing similar to Telegram
+                // This would require:
+                // 1. Route inbound Discord messages to the gateway
+                // 2. Handle outbound responses back to Discord
+                // 3. Support for Discord-specific features (embeds, reactions, etc.)
+                
+                info!("Discord channel adapter started (stub implementation)");
             }
         }
     }
@@ -484,14 +527,17 @@ impl Gateway {
 
         let system_prompt = {
             let cfg = self.config.read().unwrap();
+            let skills_section = self.get_skills_prompt_section();
+            let skills_section_opt = if skills_section.is_empty() { None } else { Some(skills_section) };
+            
             // Use orchestrator prompt for main sessions, worker prompt for subagents
             match session.kind {
                 bat_types::session::SessionKind::Main => {
-                    system_prompt::build_orchestrator_prompt(&cfg, &path_policies)
+                    system_prompt::build_orchestrator_prompt(&cfg, &path_policies, skills_section_opt)
                         .context("Failed to build orchestrator prompt")?
                 }
                 bat_types::session::SessionKind::Subagent { ref task, .. } => {
-                    system_prompt::build_worker_prompt(&cfg, &path_policies, task)
+                    system_prompt::build_worker_prompt(&cfg, &path_policies, task, skills_section_opt.clone())
                         .context("Failed to build worker prompt")?
                 }
             }
@@ -908,8 +954,11 @@ impl Gateway {
     pub fn get_system_prompt(&self) -> Result<String> {
         let cfg = self.config.read().unwrap();
         let path_policies = self.db.get_path_policies()?;
+        let skills_section = self.get_skills_prompt_section();
+        let skills_section_opt = if skills_section.is_empty() { None } else { Some(skills_section) };
+        
         // Default to orchestrator prompt for this API
-        system_prompt::build_orchestrator_prompt(&cfg, &path_policies)
+        system_prompt::build_orchestrator_prompt(&cfg, &path_policies, skills_section_opt)
     }
 
     // ─── Onboarding ───────────────────────────────────────────────────────
@@ -1287,6 +1336,43 @@ impl Gateway {
         );
         Ok(())
     }
+
+    // ─── Skills ────────────────────────────────────────────────────────
+
+    /// List all loaded skills.
+    pub fn list_skills(&self) -> Vec<skills::Skill> {
+        self.skill_manager.list_skills()
+    }
+
+    /// Get a specific skill by name.
+    pub fn get_skill(&self, name: &str) -> Option<skills::Skill> {
+        self.skill_manager.get_skill(name)
+    }
+
+    /// Enable or disable a skill.
+    pub fn set_skill_enabled(&self, name: &str, enabled: bool) -> Result<()> {
+        self.skill_manager.set_skill_enabled(name, enabled)
+    }
+
+    /// Get all enabled skills.
+    pub fn get_enabled_skills(&self) -> Vec<skills::Skill> {
+        self.skill_manager.get_enabled_skills()
+    }
+
+    /// Subscribe to skill events.
+    pub fn subscribe_skill_events(&self) -> broadcast::Receiver<skills::SkillEvent> {
+        self.skill_manager.subscribe_events()
+    }
+
+    /// Get the skills section for the system prompt.
+    pub fn get_skills_prompt_section(&self) -> String {
+        self.skill_manager.build_skills_prompt_section()
+    }
+
+    /// Get all tools defined by skills.
+    pub fn get_skill_tools(&self) -> Vec<skills::SkillTool> {
+        self.skill_manager.get_skill_tools()
+    }
 }
 
 // ─── Agent turn runner ────────────────────────────────────────────────────────
@@ -1371,7 +1457,8 @@ fn handle_subagent_action(
                     let path_policies = db.get_path_policies().unwrap_or_default();
                     let sub_prompt = {
                         let cfg = config.read().unwrap();
-                        crate::system_prompt::build_worker_prompt(&cfg, &path_policies, &task)
+                        // TODO: Pass skills section from skill manager for subagents
+                        crate::system_prompt::build_worker_prompt(&cfg, &path_policies, &task, None)
                             .unwrap_or_else(|e| {
                                 tracing::warn!("Failed to build worker prompt: {e}");
                                 format!("You are a subagent. Complete this task: {task}")

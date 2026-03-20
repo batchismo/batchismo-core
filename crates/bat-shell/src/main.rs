@@ -131,6 +131,9 @@ fn main() {
             commands::fetch_elevenlabs_voices,
             commands::ollama_list_models,
             commands::ollama_status,
+            commands::list_skills,
+            commands::get_skill,
+            commands::set_skill_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running Batchismo");

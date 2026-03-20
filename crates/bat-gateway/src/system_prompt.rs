@@ -34,13 +34,13 @@ fn format_policies(policies: &[PathPolicy]) -> String {
 }
 
 /// Build the orchestrator system prompt for main/user sessions.
-pub fn build_orchestrator_prompt(config: &BatConfig, path_policies: &[PathPolicy]) -> Result<String> {
+pub fn build_orchestrator_prompt(config: &BatConfig, path_policies: &[PathPolicy], skills_section: Option<String>) -> Result<String> {
     let workspace = workspace_path();
 
     let identity = read_md(&workspace.join("IDENTITY.md"));
     let memory = read_md(&workspace.join("MEMORY.md"));
     let patterns = read_md(&workspace.join("PATTERNS.md"));
-    let skills = read_md(&workspace.join("SKILLS.md"));
+    let skills = skills_section.unwrap_or_else(|| read_md(&workspace.join("SKILLS.md")));
 
     let agent_name = &config.agent.name;
     let policies_str = format_policies(path_policies);
@@ -123,13 +123,13 @@ Your text responses are automatically converted to voice audio by the gateway wh
 }
 
 /// Build the worker system prompt for sub-agent sessions.
-pub fn build_worker_prompt(config: &BatConfig, path_policies: &[PathPolicy], task: &str) -> Result<String> {
+pub fn build_worker_prompt(config: &BatConfig, path_policies: &[PathPolicy], task: &str, skills_section: Option<String>) -> Result<String> {
     let workspace = workspace_path();
 
     let identity = read_md(&workspace.join("IDENTITY.md"));
     let memory = read_md(&workspace.join("MEMORY.md"));
     let patterns = read_md(&workspace.join("PATTERNS.md"));
-    let skills = read_md(&workspace.join("SKILLS.md"));
+    let skills = skills_section.unwrap_or_else(|| read_md(&workspace.join("SKILLS.md")));
 
     let agent_name = &config.agent.name;
     let policies_str = format_policies(path_policies);

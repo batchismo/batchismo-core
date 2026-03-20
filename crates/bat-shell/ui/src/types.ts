@@ -134,8 +134,15 @@ export interface TelegramChannelConfig {
   allow_from: number[]
 }
 
+export interface DiscordChannelConfig {
+  enabled: boolean
+  bot_token: string
+  allow_from: number[]
+}
+
 export interface ChannelsConfig {
   telegram?: TelegramChannelConfig
+  discord?: DiscordChannelConfig
 }
 
 export interface ApiKeys {
@@ -316,4 +323,4 @@ export interface FolderAccess {
   access: string
   recursive: boolean
 }
-export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'audit' | 'sandbox' | 'ollama' | 'about'
+export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'skills' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'audit' | 'sandbox' | 'ollama' | 'metrics' | 'about'

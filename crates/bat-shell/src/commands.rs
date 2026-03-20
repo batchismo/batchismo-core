@@ -389,3 +389,35 @@ pub async fn ollama_status(
         .await
         .map_err(|e| e.to_string())
 }
+
+// ─── Skills ────────────────────────────────────────────────────────────
+
+/// List all loaded skills.
+#[tauri::command]
+pub fn list_skills(
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_gateway::skills::Skill>, String> {
+    Ok(state.gateway.list_skills())
+}
+
+/// Get a specific skill by name.
+#[tauri::command]
+pub fn get_skill(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Option<bat_gateway::skills::Skill>, String> {
+    Ok(state.gateway.get_skill(&name))
+}
+
+/// Enable or disable a skill.
+#[tauri::command]
+pub fn set_skill_enabled(
+    name: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .gateway
+        .set_skill_enabled(&name, enabled)
+        .map_err(|e| e.to_string())
+}

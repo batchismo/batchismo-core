@@ -220,6 +220,8 @@ fn default_subagent_timeout() -> u32 { 60 }
 pub struct ChannelsConfig {
     #[serde(default)]
     pub telegram: Option<TelegramChannelConfig>,
+    #[serde(default)]
+    pub discord: Option<DiscordChannelConfig>,
 }
 
 /// Voice I/O configuration.
@@ -281,6 +283,15 @@ pub struct TelegramChannelConfig {
     /// Telegram user IDs allowed to interact with the bot.
     #[serde(default)]
     pub allow_from: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordChannelConfig {
+    pub enabled: bool,
+    pub bot_token: String,
+    /// Discord user IDs allowed to interact with the bot.
+    #[serde(default)]
+    pub allow_from: Vec<u64>,
 }
 
 impl Default for BatConfig {
