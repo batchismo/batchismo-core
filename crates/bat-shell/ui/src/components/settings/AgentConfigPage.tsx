@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import type { BatConfig, OllamaModel } from '../../types'
+import type { BatConfig, OllamaModel, TaskType } from '../../types'
+import { TASK_TYPE_LABELS, TASK_TYPE_DESCRIPTIONS } from '../../types'
 import { getConfig, updateConfig, getSystemPrompt, ollamaListModels } from '../../lib/tauri'
 
 const ANTHROPIC_MODELS = [
@@ -306,6 +307,53 @@ export function AgentConfigPage() {
                         enabled ? 'translate-x-4' : 'translate-x-0'
                       }`} />
                     </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Model Routing */}
+        {availableModels.length > 0 && (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-zinc-300">Model Routing</label>
+              <p className="text-xs text-zinc-500 mt-1">
+                Assign different models to different task types. If not set, uses the default model.
+              </p>
+            </div>
+            <div className="space-y-3">
+              {(['main_chat', 'subagents', 'memory_consolidation'] as TaskType[]).map(taskType => {
+                const currentModel = config.agent.model_routing[taskType]
+                return (
+                  <div key={taskType} className="space-y-1.5">
+                    <div>
+                      <span className="text-sm font-medium text-zinc-300">
+                        {TASK_TYPE_LABELS[taskType]}
+                      </span>
+                      <p className="text-xs text-zinc-500">{TASK_TYPE_DESCRIPTIONS[taskType]}</p>
+                    </div>
+                    <select
+                      value={currentModel || ''}
+                      onChange={e => {
+                        const value = e.target.value || null
+                        updateAgent({
+                          model_routing: {
+                            ...config.agent.model_routing,
+                            [taskType]: value,
+                          },
+                        })
+                      }}
+                      className="w-full bg-zinc-900 border border-zinc-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-zinc-400"
+                    >
+                      <option value="">Use default model ({config.agent.model})</option>
+                      {availableModels.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.label} ({m.provider})
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )
               })}

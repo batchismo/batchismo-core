@@ -105,6 +105,27 @@ export interface AgentConfig {
   personality_prompt: string | null
   disabled_tools: string[]
   enabled_models: string[]
+  model_routing: ModelRoutingConfig
+}
+
+export interface ModelRoutingConfig {
+  main_chat: string | null
+  subagents: string | null
+  memory_consolidation: string | null
+}
+
+export type TaskType = 'main_chat' | 'subagents' | 'memory_consolidation'
+
+export const TASK_TYPE_LABELS: Record<TaskType, string> = {
+  main_chat: 'Main Chat',
+  subagents: 'Subagents',
+  memory_consolidation: 'Memory Consolidation',
+}
+
+export const TASK_TYPE_DESCRIPTIONS: Record<TaskType, string> = {
+  main_chat: 'Primary conversation with the user (orchestrator sessions)',
+  subagents: 'Background worker tasks spawned by the orchestrator',
+  memory_consolidation: 'Automatic updates to MEMORY.md and PATTERNS.md',
 }
 
 export interface TelegramChannelConfig {

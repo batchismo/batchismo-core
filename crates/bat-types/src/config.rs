@@ -102,6 +102,81 @@ pub struct AgentConfig {
     /// Model IDs enabled for multi-LLM routing (v0.4.0).
     #[serde(default)]
     pub enabled_models: Vec<String>,
+    /// Per-task-type model routing configuration (v0.5.0).
+    #[serde(default)]
+    pub model_routing: ModelRoutingConfig,
+}
+
+/// Per-task-type model routing configuration.
+/// Allows different models to be used for different types of work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelRoutingConfig {
+    /// Model for main chat sessions (orchestrator).
+    /// If None, falls back to the default model.
+    #[serde(default)]
+    pub main_chat: Option<String>,
+    /// Model for subagent worker sessions.
+    /// If None, falls back to the default model.
+    #[serde(default)]
+    pub subagents: Option<String>,
+    /// Model for memory consolidation tasks.
+    /// If None, falls back to the default model.
+    #[serde(default)]
+    pub memory_consolidation: Option<String>,
+}
+
+impl Default for ModelRoutingConfig {
+    fn default() -> Self {
+        Self {
+            main_chat: None,
+            subagents: None,
+            memory_consolidation: None,
+        }
+    }
+}
+
+/// Task types for model routing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskType {
+    MainChat,
+    Subagent,
+    MemoryConsolidation,
+}
+
+impl TaskType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskType::MainChat => "main_chat",
+            TaskType::Subagent => "subagent", 
+            TaskType::MemoryConsolidation => "memory_consolidation",
+        }
+    }
+}
+
+impl ModelRoutingConfig {
+    /// Get the model for a specific task type, falling back to the default if not configured.
+    pub fn model_for_task(&self, task_type: TaskType, default_model: &str) -> String {
+        match task_type {
+            TaskType::MainChat => {
+                self.main_chat.clone().unwrap_or_else(|| default_model.to_string())
+            }
+            TaskType::Subagent => {
+                self.subagents.clone().unwrap_or_else(|| default_model.to_string())
+            }
+            TaskType::MemoryConsolidation => {
+                self.memory_consolidation.clone().unwrap_or_else(|| default_model.to_string())
+            }
+        }
+    }
+
+    /// Set the model for a specific task type.
+    pub fn set_model_for_task(&mut self, task_type: TaskType, model: Option<String>) {
+        match task_type {
+            TaskType::MainChat => self.main_chat = model,
+            TaskType::Subagent => self.subagents = model,
+            TaskType::MemoryConsolidation => self.memory_consolidation = model,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +295,7 @@ impl Default for BatConfig {
                 disabled_tools: vec![],
                 onboarding_complete: false,
                 enabled_models: vec![],
+                model_routing: ModelRoutingConfig::default(),
             },
             gateway: GatewayConfig {
                 port: 19000,
@@ -269,5 +345,96 @@ impl BatConfig {
                 self.api_keys.elevenlabs = Some(key.clone());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_model_routing_defaults() {
+        let routing = ModelRoutingConfig::default();
+        
+        // All should default to None (fallback to default model)
+        assert_eq!(routing.main_chat, None);
+        assert_eq!(routing.subagents, None);
+        assert_eq!(routing.memory_consolidation, None);
+    }
+
+    #[test]
+    fn test_model_for_task_fallback() {
+        let routing = ModelRoutingConfig::default();
+        let default_model = "claude-sonnet-4-6";
+        
+        // All tasks should fall back to default model when not configured
+        assert_eq!(routing.model_for_task(TaskType::MainChat, default_model), default_model);
+        assert_eq!(routing.model_for_task(TaskType::Subagent, default_model), default_model);
+        assert_eq!(routing.model_for_task(TaskType::MemoryConsolidation, default_model), default_model);
+    }
+
+    #[test]
+    fn test_model_for_task_configured() {
+        let mut routing = ModelRoutingConfig::default();
+        routing.main_chat = Some("claude-opus-4-6".to_string());
+        routing.subagents = Some("claude-haiku-4-5-20251001".to_string());
+        routing.memory_consolidation = Some("gpt-4o-mini".to_string());
+        
+        let default_model = "claude-sonnet-4-6";
+        
+        // Should return configured models
+        assert_eq!(routing.model_for_task(TaskType::MainChat, default_model), "claude-opus-4-6");
+        assert_eq!(routing.model_for_task(TaskType::Subagent, default_model), "claude-haiku-4-5-20251001");
+        assert_eq!(routing.model_for_task(TaskType::MemoryConsolidation, default_model), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn test_set_model_for_task() {
+        let mut routing = ModelRoutingConfig::default();
+        
+        // Set models for each task type
+        routing.set_model_for_task(TaskType::MainChat, Some("claude-opus-4-6".to_string()));
+        routing.set_model_for_task(TaskType::Subagent, Some("claude-haiku-4-5-20251001".to_string()));
+        routing.set_model_for_task(TaskType::MemoryConsolidation, Some("gpt-4o-mini".to_string()));
+        
+        assert_eq!(routing.main_chat, Some("claude-opus-4-6".to_string()));
+        assert_eq!(routing.subagents, Some("claude-haiku-4-5-20251001".to_string()));
+        assert_eq!(routing.memory_consolidation, Some("gpt-4o-mini".to_string()));
+        
+        // Clear a model (set to None)
+        routing.set_model_for_task(TaskType::MainChat, None);
+        assert_eq!(routing.main_chat, None);
+    }
+
+    #[test]
+    fn test_task_type_as_str() {
+        assert_eq!(TaskType::MainChat.as_str(), "main_chat");
+        assert_eq!(TaskType::Subagent.as_str(), "subagent");
+        assert_eq!(TaskType::MemoryConsolidation.as_str(), "memory_consolidation");
+    }
+
+    #[test]
+    fn test_api_keys_provider_routing() {
+        // Test that provider detection still works for routing
+        assert_eq!(ApiKeys::provider_for_model("claude-opus-4-6"), LlmProvider::Anthropic);
+        assert_eq!(ApiKeys::provider_for_model("gpt-4o"), LlmProvider::OpenAI);
+        assert_eq!(ApiKeys::provider_for_model("llama3"), LlmProvider::Ollama);
+        assert_eq!(ApiKeys::provider_for_model("mistral"), LlmProvider::Ollama);
+    }
+
+    #[test]
+    fn test_config_with_model_routing() {
+        let mut config = BatConfig::default();
+        
+        // Configure model routing
+        config.agent.model_routing.main_chat = Some("claude-opus-4-6".to_string());
+        config.agent.model_routing.subagents = Some("gpt-4o-mini".to_string());
+        config.agent.model_routing.memory_consolidation = Some("claude-haiku-4-5-20251001".to_string());
+        
+        // Verify the routing works
+        let default_model = &config.agent.model;
+        assert_eq!(config.agent.model_routing.model_for_task(TaskType::MainChat, default_model), "claude-opus-4-6");
+        assert_eq!(config.agent.model_routing.model_for_task(TaskType::Subagent, default_model), "gpt-4o-mini");
+        assert_eq!(config.agent.model_routing.model_for_task(TaskType::MemoryConsolidation, default_model), "claude-haiku-4-5-20251001");
     }
 }

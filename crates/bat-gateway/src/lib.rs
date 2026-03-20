@@ -467,8 +467,13 @@ impl Gateway {
         // Read config once under lock
         let (model, disabled_tools, agent_env) = {
             let cfg = self.config.read().unwrap();
+            // Use task-specific model routing for main chat
+            let task_model = cfg.agent.model_routing.model_for_task(
+                bat_types::config::TaskType::MainChat,
+                &cfg.agent.model,
+            );
             (
-                cfg.agent.model.clone(),
+                task_model,
                 cfg.agent.disabled_tools.clone(),
                 build_agent_env(&cfg),
             )
@@ -601,9 +606,14 @@ impl Gateway {
                         info!("Auto-consolidation triggered: {} obs, {} sessions", obs_count, session_count);
                         let (api_key_c, model_c) = {
                             let cfg = gw_config_post.read().unwrap();
+                            // Use task-specific model routing for memory consolidation
+                            let consolidation_model = cfg.agent.model_routing.model_for_task(
+                                bat_types::config::TaskType::MemoryConsolidation,
+                                &cfg.agent.model,
+                            );
                             (
                                 cfg.api_keys.anthropic_key().unwrap_or_default(),
-                                cfg.agent.model.clone(),
+                                consolidation_model,
                             )
                         };
                         if !api_key_c.is_empty() {
@@ -1164,8 +1174,12 @@ impl Gateway {
             let cfg = self.config.read().unwrap();
             let key = cfg.api_keys.anthropic_key()
                 .ok_or_else(|| anyhow::anyhow!("No Anthropic API key configured"))?;
-            let model = cfg.agent.model.clone();
-            (key, model)
+            // Use task-specific model routing for memory consolidation
+            let consolidation_model = cfg.agent.model_routing.model_for_task(
+                bat_types::config::TaskType::MemoryConsolidation,
+                &cfg.agent.model,
+            );
+            (key, consolidation_model)
         };
 
         let result = consolidation::run_consolidation(&self.db, &self.event_bus, &api_key, &model).await?;
@@ -1338,8 +1352,13 @@ fn handle_subagent_action(
             let label = label.unwrap_or_else(|| task.chars().take(40).collect::<String>());
             let (model, sub_agent_env, disabled_tools_base) = {
                 let cfg = config.read().unwrap();
+                // Use task-specific model routing for subagents
+                let task_model = cfg.agent.model_routing.model_for_task(
+                    bat_types::config::TaskType::Subagent,
+                    &cfg.agent.model,
+                );
                 (
-                    cfg.agent.model.clone(),
+                    task_model,
                     build_agent_env(&cfg),
                     cfg.agent.disabled_tools.clone(),
                 )
