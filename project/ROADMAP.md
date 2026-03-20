@@ -78,20 +78,20 @@ Hot-reloadable skills, Discord adapter, web tools polish, metrics dashboard.
 ---
 
 ## Track 5: Onboarding Wizard
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **PRD Ref:** Section 11
 
 ### What
 6-step guided first-launch wizard for non-developers.
 
 ### Tasks
-- [ ] Welcome screen
-- [ ] LLM provider + API key entry with validation
-- [ ] Agent naming (writes IDENTITY.md)
-- [ ] Path access setup with native file picker
-- [ ] Channel setup (optional Telegram/Discord)
-- [ ] First suggested task
-- [ ] Skip onboarding if already configured
+- [x] Welcome screen ✅ Clean, inviting design with "Your AI that actually works on your computer"
+- [x] LLM provider + API key entry with validation ✅ Unified ProviderStep supporting Anthropic (recommended), OpenAI, and Ollama (local)
+- [x] Agent naming (writes IDENTITY.md) ✅ Personal step to establish relationship
+- [x] Path access setup with native file picker ✅ Existing AccessStep with Tauri dialog plugin
+- [x] Channel setup (optional Telegram/Discord) ✅ New ChannelStep with skip option
+- [x] First suggested task ✅ FirstTaskStep suggests starter tasks based on granted folders with "Try it now"
+- [x] Skip onboarding if already configured ✅ App.tsx checks onboarding_complete config
 
 ---
 
@@ -119,3 +119,4 @@ Auto-route requests to the right model based on complexity/domain. Cost governor
 | 2026-03-20 | Track 2 | ✅ Sub-Agent Lifecycle Management - Pause/resume/instruct/cancel tools and UI complete |
 | 2026-03-20 | Track 3 | ✅ Hybrid LLM Routing - Per-task-type model assignment, Settings UI, gateway routing logic, and tests complete |
 | 2026-03-20 | Track 4 | ✅ Skill System & Polish - Hot-reloadable skills with UI, Discord stub adapter, web tools verified, metrics dashboard complete |
+| 2026-03-20 | Track 5 | ✅ Onboarding Wizard - 6-step wizard with provider selection, channel setup, and suggested first tasks complete |
