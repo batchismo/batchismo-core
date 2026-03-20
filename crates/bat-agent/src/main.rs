@@ -141,10 +141,12 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
     tracing::info!("Connected to gateway pipe");
 
     // Step 1: receive Init
+    tracing::info!("Waiting for Init message...");
     let init = pipe
         .recv()
         .await?
         .ok_or_else(|| anyhow::anyhow!("Pipe closed before Init message"))?;
+    tracing::info!("Init message received");
 
     let (session_id_str, model, system_prompt, history, path_policies, disabled_tools, session_kind) = match init {
         GatewayToAgent::Init {
@@ -178,8 +180,12 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
     );
 
     // Step 2: receive UserMessage
+    tracing::info!("Waiting for UserMessage...");
     let (user_content, user_images) = match pipe.recv().await? {
-        Some(GatewayToAgent::UserMessage { content, images }) => (content, images),
+        Some(GatewayToAgent::UserMessage { content, images }) => {
+            tracing::info!("UserMessage received: {}", &content[..content.len().min(80)]);
+            (content, images)
+        }
         Some(GatewayToAgent::Cancel) => {
             tracing::info!("Received Cancel before UserMessage — exiting");
             return Ok(());
@@ -226,7 +232,9 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
     };
 
     // Step 4: run agent turn in a separate task, streaming text deltas
+    tracing::info!("Starting agent turn with model: {}", model);
     let turn_handle = tokio::spawn(async move {
+        tracing::info!("Agent turn task started, calling LLM...");
         agent_loop::run_turn_streaming(
             &client,
             &registry,

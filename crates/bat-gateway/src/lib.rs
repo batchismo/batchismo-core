@@ -1908,6 +1908,7 @@ async fn run_agent_turn(
         "Agent connected to IPC pipe", Some(&sid), None);
 
     // 4. Send Init
+    info!("Sending Init to agent (session_kind: {})", session_kind);
     pipe.send(&GatewayToAgent::Init {
         session_id: session_id.to_string(),
         model: model.clone(),
@@ -1919,14 +1920,17 @@ async fn run_agent_turn(
     })
     .await
     .context("Failed to send Init to agent")?;
+    info!("Init sent successfully");
 
     // 5. Send UserMessage
+    info!("Sending UserMessage to agent: {}", &user_content[..user_content.len().min(80)]);
     pipe.send(&GatewayToAgent::UserMessage {
         content: user_content,
         images: user_images,
     })
     .await
     .context("Failed to send UserMessage to agent")?;
+    info!("UserMessage sent successfully");
 
     // 6. Read events until TurnComplete or Error
     loop {
