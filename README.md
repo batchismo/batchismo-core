@@ -301,4 +301,4 @@ Batchismo is in active development. Current version: **v0.3.6**
 
 ## License
 
-Private — Nightfall Advisors. All rights reserved.
+MIT License — see [LICENSE](LICENSE) for details.

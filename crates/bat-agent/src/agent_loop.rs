@@ -5,7 +5,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use bat_types::message::{ImageAttachment, Message, ToolCall, ToolResult};
-use crate::llm::{AnthropicClient, AnthropicMessage, ChatRequest, ContentBlock};
+use crate::llm::{AnthropicMessage, ChatRequest, ContentBlock};
+use crate::provider::LlmClient;
 use crate::tools::ToolRegistry;
 
 const MAX_TOOL_ITERATIONS: usize = 25;
@@ -27,7 +28,7 @@ pub struct TurnResult {
 /// calls (after tool execution) are non-streaming. Returns once the full
 /// turn completes (stop_reason == "end_turn" or max iterations reached).
 pub async fn run_turn_streaming(
-    client: &AnthropicClient,
+    client: &LlmClient,
     registry: &ToolRegistry,
     model: &str,
     system_prompt: &str,
@@ -128,7 +129,7 @@ pub async fn run_turn_streaming(
 /// Non-streaming turn — convenience wrapper used in tests.
 #[allow(dead_code)]
 pub async fn run_turn(
-    client: &AnthropicClient,
+    client: &LlmClient,
     registry: &ToolRegistry,
     model: &str,
     system_prompt: &str,

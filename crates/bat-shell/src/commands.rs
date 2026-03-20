@@ -363,3 +363,29 @@ pub fn get_audit_stats(state: State<'_, AppState>) -> Result<AuditStats, String>
         .get_audit_stats()
         .map_err(|e| e.to_string())
 }
+
+// ─── Ollama ────────────────────────────────────────────────────────────
+
+/// List locally available Ollama models.
+#[tauri::command]
+pub async fn ollama_list_models(
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_gateway::OllamaModel>, String> {
+    state
+        .gateway
+        .ollama_list_models()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check if Ollama is reachable.
+#[tauri::command]
+pub async fn ollama_status(
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    state
+        .gateway
+        .ollama_status()
+        .await
+        .map_err(|e| e.to_string())
+}

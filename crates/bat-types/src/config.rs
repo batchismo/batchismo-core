@@ -30,6 +30,10 @@ pub struct ApiKeys {
     /// ElevenLabs API key — used for ElevenLabs TTS voices.
     #[serde(default)]
     pub elevenlabs: Option<String>,
+    /// Ollama endpoint URL — used for local LLM inference (no API key needed).
+    /// Default: http://localhost:11434
+    #[serde(default)]
+    pub ollama_endpoint: Option<String>,
 }
 
 impl ApiKeys {
@@ -47,6 +51,34 @@ impl ApiKeys {
     pub fn elevenlabs_key(&self) -> Option<String> {
         std::env::var("ELEVENLABS_API_KEY").ok().or_else(|| self.elevenlabs.clone())
     }
+
+    /// Get the Ollama endpoint URL, checking env var first.
+    /// Returns the configured endpoint or the default localhost URL.
+    pub fn ollama_endpoint(&self) -> String {
+        std::env::var("OLLAMA_ENDPOINT").ok()
+            .or_else(|| self.ollama_endpoint.clone())
+            .unwrap_or_else(|| "http://localhost:11434".to_string())
+    }
+
+    /// Determine the LLM provider from a model name.
+    pub fn provider_for_model(model: &str) -> LlmProvider {
+        if model.starts_with("claude-") {
+            LlmProvider::Anthropic
+        } else if model.starts_with("gpt-") || model.starts_with("o3-") || model.starts_with("o1-") {
+            LlmProvider::OpenAI
+        } else {
+            // Everything else routes to Ollama (local models like llama3, mistral, phi3, etc.)
+            LlmProvider::Ollama
+        }
+    }
+}
+
+/// LLM provider enum for routing inference requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlmProvider {
+    Anthropic,
+    OpenAI,
+    Ollama,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

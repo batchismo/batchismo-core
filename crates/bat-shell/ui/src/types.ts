@@ -111,6 +111,14 @@ export interface ApiKeys {
   anthropic: string | null
   openai: string | null
   elevenlabs: string | null
+  ollama_endpoint: string | null
+}
+
+export interface OllamaModel {
+  name: string
+  size: number
+  modifiedAt: string | null
+  parameterSize: string | null
 }
 
 export interface VoiceConfig {
@@ -263,4 +271,4 @@ export interface FolderAccess {
   access: string
   recursive: boolean
 }
-export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'audit' | 'sandbox' | 'about'
+export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'audit' | 'sandbox' | 'ollama' | 'about'

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import type { BatConfig } from '../../types'
-import { getConfig, updateConfig, getSystemPrompt } from '../../lib/tauri'
+import type { BatConfig, OllamaModel } from '../../types'
+import { getConfig, updateConfig, getSystemPrompt, ollamaListModels } from '../../lib/tauri'
 
 const ANTHROPIC_MODELS = [
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Fast & capable', provider: 'Anthropic' },
@@ -24,6 +24,8 @@ export function AgentConfigPage() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
+
   const hasAnthropicKey = !!(config?.api_keys?.anthropic)
   const hasOpenAIKey = !!(config?.api_keys?.openai)
 
@@ -32,6 +34,10 @@ export function AgentConfigPage() {
       .then(setConfig)
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false))
+    // Try to fetch Ollama models (non-blocking)
+    ollamaListModels()
+      .then(setOllamaModels)
+      .catch(() => {}) // Ollama may not be running
   }, [])
 
   const handleSave = async (e: React.FormEvent) => {
@@ -208,9 +214,40 @@ export function AgentConfigPage() {
             </div>
           )}
 
-          {!hasAnthropicKey && !hasOpenAIKey && (
+          {/* Local Ollama models */}
+          {ollamaModels.length > 0 && (
+            <div className="mt-2">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5 font-medium">Local (Ollama)</p>
+              <div className="flex flex-wrap gap-1.5">
+                {ollamaModels.map(m => {
+                  // Strip :latest tag for display
+                  const displayName = m.name.replace(/:latest$/, '')
+                  return (
+                    <button
+                      key={m.name}
+                      type="button"
+                      onClick={() => updateAgent({ model: m.name.replace(/:latest$/, '') })}
+                      className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${
+                        config.agent.model === displayName
+                          ? 'border-purple-500 bg-purple-900/40 text-purple-300'
+                          : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      <span className="font-mono">{displayName}</span>
+                      {m.parameterSize && (
+                        <span className="text-zinc-600 ml-1.5">· {m.parameterSize}</span>
+                      )}
+                      <span className="text-purple-600 ml-1.5">· Local</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {!hasAnthropicKey && !hasOpenAIKey && ollamaModels.length === 0 && (
             <p className="text-xs text-amber-400 mt-1.5">
-              ⚠️ No API keys configured. Add a key in <span className="font-medium">Settings → API Keys</span> to see available models.
+              ⚠️ No API keys or local models found. Add a key in <span className="font-medium">Settings → API Keys</span> or set up Ollama in <span className="font-medium">Settings → Local LLM</span>.
             </p>
           )}
 

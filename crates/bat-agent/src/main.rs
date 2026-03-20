@@ -1,7 +1,9 @@
 mod agent_loop;
 pub mod gateway_bridge;
 mod llm;
+mod openai_client;
 mod policy;
+mod provider;
 mod tools;
 
 use anyhow::{Context, Result};
@@ -24,11 +26,8 @@ async fn main() -> Result<()> {
     let pipe_name = find_arg(&args, "--pipe")
         .ok_or_else(|| anyhow::anyhow!("--pipe <name> argument required"))?;
 
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .context("ANTHROPIC_API_KEY environment variable not set")?;
-
     tracing::info!("bat-agent starting, connecting to pipe: {}", pipe_name);
-    run_agent(&pipe_name, &api_key).await
+    run_agent(&pipe_name).await
 }
 
 fn find_arg(args: &[String], flag: &str) -> Option<String> {
@@ -137,7 +136,7 @@ impl GatewayPipe {
 
 // ─── Agent logic ──────────────────────────────────────────────────────────────
 
-async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
+async fn run_agent(pipe_name: &str) -> Result<()> {
     let mut pipe = GatewayPipe::connect(pipe_name).await?;
     tracing::info!("Connected to gateway pipe");
 
@@ -164,9 +163,10 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
         .parse()
         .context("Invalid session_id in Init message")?;
 
-    // Normalize model name (strip optional "anthropic/" prefix)
+    // Normalize model name (strip optional provider prefix)
     let model = model
         .strip_prefix("anthropic/")
+        .or_else(|| model.strip_prefix("openai/"))
         .unwrap_or(&model)
         .to_string();
 
@@ -193,8 +193,25 @@ async fn run_agent(pipe_name: &str, api_key: &str) -> Result<()> {
     // Step 3: create streaming channel for text deltas
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
 
-    // Build LLM client, gateway bridge, and tool registry
-    let client = llm::AnthropicClient::new(api_key.to_string());
+    // Build LLM client based on the model's provider
+    let llm_provider = bat_types::config::ApiKeys::provider_for_model(&model);
+    let client = match llm_provider {
+        bat_types::config::LlmProvider::Anthropic => {
+            let api_key = std::env::var("ANTHROPIC_API_KEY")
+                .context("ANTHROPIC_API_KEY not set for Anthropic model")?;
+            provider::LlmClient::Anthropic(llm::AnthropicClient::new(api_key))
+        }
+        bat_types::config::LlmProvider::OpenAI => {
+            let api_key = std::env::var("OPENAI_API_KEY")
+                .context("OPENAI_API_KEY not set for OpenAI model")?;
+            provider::LlmClient::OpenAICompatible(openai_client::OpenAICompatibleClient::openai(api_key))
+        }
+        bat_types::config::LlmProvider::Ollama => {
+            let endpoint = std::env::var("OLLAMA_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:11434".to_string());
+            provider::LlmClient::OpenAICompatible(openai_client::OpenAICompatibleClient::ollama(endpoint))
+        }
+    };
     let (bridge, mut bridge_rx) = gateway_bridge::create_bridge();
     let pending = std::sync::Arc::new(gateway_bridge::BridgePending::new());
 

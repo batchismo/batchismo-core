@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats, ElevenLabsVoice, ImageAttachment, DiffLine } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats, ElevenLabsVoice, ImageAttachment, DiffLine, OllamaModel } from '../types'
 
 export const sendMessage = (content: string, images?: ImageAttachment[]): Promise<void> =>
   invoke('send_message', { content, images: images?.length ? images : null })
@@ -102,3 +102,10 @@ export const completeOnboarding = (name: string, apiKey: string, openaiApiKey: s
 // Voice
 export const fetchElevenlabsVoices = (): Promise<ElevenLabsVoice[]> =>
   invoke('fetch_elevenlabs_voices')
+
+// Ollama
+export const ollamaListModels = (): Promise<OllamaModel[]> =>
+  invoke('ollama_list_models')
+
+export const ollamaStatus = (): Promise<boolean> =>
+  invoke('ollama_status')
