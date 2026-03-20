@@ -190,8 +190,9 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
 
     tracing::info!("Running turn for: {:?}", &user_content[..user_content.len().min(80)]);
 
-    // Step 3: create streaming channel for text deltas
+    // Step 3: create streaming channel for text deltas and incoming messages
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::unbounded_channel::<GatewayToAgent>();
 
     // Build LLM client based on the model's provider
     let llm_provider = bat_types::config::ApiKeys::provider_for_model(&model);
@@ -236,6 +237,7 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
             &user_images,
             session_id,
             tx,
+            Some(incoming_rx),
         )
         .await
     });
@@ -272,6 +274,12 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
                         match msg {
                             GatewayToAgent::ProcessResponse { request_id, result } => {
                                 pending.deliver(&request_id, result);
+                            }
+                            GatewayToAgent::Answer { .. } | GatewayToAgent::Instruction { .. } => {
+                                // Forward these messages to the agent loop
+                                if let Err(e) = incoming_tx.send(msg) {
+                                    tracing::warn!("Failed to forward message to agent loop: {}", e);
+                                }
                             }
                             _ => {
                                 tracing::warn!("Unexpected message while waiting for ProcessResponse: {:?}", msg);

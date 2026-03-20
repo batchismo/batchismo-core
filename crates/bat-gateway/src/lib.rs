@@ -17,10 +17,11 @@ pub mod tts;
 pub use events::EventBus;
 
 use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -79,6 +80,87 @@ struct TelegramState {
     pending_question: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<String>>>>,
 }
 
+/// Message router for inter-session communication.
+/// Handles routing Questions from sub-agents to their parent orchestrators,
+/// and routing Answers and Instructions back to the appropriate sessions.
+struct MessageRouter {
+    /// Map from session_id to the message sender for that session.
+    /// When a session is running, it registers its message queue here.
+    session_queues: Arc<RwLock<HashMap<Uuid, mpsc::UnboundedSender<GatewayToAgent>>>>,
+}
+
+impl MessageRouter {
+    fn new() -> Self {
+        Self {
+            session_queues: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Register a message queue for an active session.
+    fn register_session(&self, session_id: Uuid, tx: mpsc::UnboundedSender<GatewayToAgent>) {
+        let mut queues = self.session_queues.write().unwrap();
+        queues.insert(session_id, tx);
+        debug!("Registered message queue for session {}", session_id);
+    }
+
+    /// Unregister a session when it completes.
+    fn unregister_session(&self, session_id: Uuid) {
+        let mut queues = self.session_queues.write().unwrap();
+        queues.remove(&session_id);
+        debug!("Unregistered message queue for session {}", session_id);
+    }
+
+    /// Route a question from a sub-agent to its parent orchestrator.
+    fn route_question(&self, from_session_id: Uuid, parent_session_id: Uuid, question_id: String, question: String, context: String) -> Result<()> {
+        let queues = self.session_queues.read().unwrap();
+        if let Some(tx) = queues.get(&parent_session_id) {
+            let msg = GatewayToAgent::UserMessage {
+                content: format!("🤖 **Sub-agent question from session {}:**\n\n❓ {}\n\n**Context:** {}\n\n[Question ID: {}]", 
+                    from_session_id.to_string()[..8].to_string(),
+                    question,
+                    context,
+                    question_id
+                ),
+                images: vec![],
+            };
+            tx.send(msg).map_err(|e| anyhow::anyhow!("Failed to route question: {}", e))?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Parent orchestrator session {} not found or not active", parent_session_id))
+        }
+    }
+
+    /// Route an answer from an orchestrator back to a waiting sub-agent.
+    fn route_answer(&self, to_session_id: Uuid, question_id: String, answer: String) -> Result<()> {
+        let queues = self.session_queues.read().unwrap();
+        if let Some(tx) = queues.get(&to_session_id) {
+            let msg = GatewayToAgent::Answer {
+                question_id,
+                answer,
+            };
+            tx.send(msg).map_err(|e| anyhow::anyhow!("Failed to route answer: {}", e))?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Target session {} not found or not active", to_session_id))
+        }
+    }
+
+    /// Route an instruction from an orchestrator to a sub-agent.
+    fn route_instruction(&self, to_session_id: Uuid, instruction_id: String, content: String) -> Result<()> {
+        let queues = self.session_queues.read().unwrap();
+        if let Some(tx) = queues.get(&to_session_id) {
+            let msg = GatewayToAgent::Instruction {
+                instruction_id,
+                content,
+            };
+            tx.send(msg).map_err(|e| anyhow::anyhow!("Failed to route instruction: {}", e))?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Target session {} not found or not active", to_session_id))
+        }
+    }
+}
+
 /// The central gateway — owns the database, session state, and event bus.
 /// The Tauri shell holds an `Arc<Gateway>` in `AppState`.
 pub struct Gateway {
@@ -91,6 +173,8 @@ pub struct Gateway {
     active_session_key: Arc<RwLock<String>>,
     /// Last consolidation diffs (for diff view in UI).
     last_consolidation_diffs: Arc<RwLock<Vec<consolidation::FileDiff>>>,
+    /// Message router for inter-session communication.
+    message_router: Arc<MessageRouter>,
 }
 
 impl Gateway {
@@ -109,6 +193,7 @@ impl Gateway {
             process_manager: process_manager::ProcessManager::new(),
             active_session_key: Arc::new(RwLock::new("main".to_string())),
             last_consolidation_diffs: Arc::new(RwLock::new(Vec::new())),
+            message_router: Arc::new(MessageRouter::new()),
         })
     }
 
@@ -1382,6 +1467,11 @@ fn handle_subagent_action(
             tracing::info!("Instructing subagent: {} with: {}", session_key, instruction);
             ProcessResult::SubagentInstructed
         }
+        ProcessAction::AnswerSubagent { session_key, question_id, answer } => {
+            // TODO: Implement actual answer routing when mid-turn message injection is ready
+            tracing::info!("Answering subagent: {} question_id: {} with: {}", session_key, question_id, answer);
+            ProcessResult::SubagentAnswered
+        }
         _ => ProcessResult::Error { message: "Not a subagent action".into() },
     }
 }
@@ -1444,7 +1534,7 @@ async fn handle_process_request(
         }
         // Subagent actions are handled in the IPC loop directly (not here)
         // because they need access to gateway state that would make this future !Send.
-        ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. } | ProcessAction::PauseSubagent { .. } | ProcessAction::ResumeSubagent { .. } | ProcessAction::InstructSubagent { .. } => {
+        ProcessAction::SpawnSubagent { .. } | ProcessAction::ListSubagents | ProcessAction::CancelSubagent { .. } | ProcessAction::AskOrchestrator { .. } | ProcessAction::PauseSubagent { .. } | ProcessAction::ResumeSubagent { .. } | ProcessAction::InstructSubagent { .. } | ProcessAction::AnswerSubagent { .. } => {
             ProcessResult::Error { message: "Subagent actions must be handled by the gateway directly".to_string() }
         }
     }

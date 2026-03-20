@@ -1,10 +1,11 @@
 use anyhow::Result;
 use std::collections::HashMap;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, UnboundedReceiver};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use bat_types::message::{ImageAttachment, Message, ToolCall, ToolResult};
+use bat_types::ipc::GatewayToAgent;
 use crate::llm::{AnthropicMessage, ChatRequest, ContentBlock};
 use crate::provider::LlmClient;
 use crate::tools::ToolRegistry;
@@ -12,6 +13,34 @@ use crate::tools::ToolRegistry;
 const MAX_TOOL_ITERATIONS: usize = 25;
 /// After this many consecutive identical errors, inject a circuit-breaker warning.
 const ERROR_REPEAT_THRESHOLD: usize = 3;
+
+/// Check for and handle incoming messages from the gateway (Questions, Answers, Instructions).
+/// Returns true if the turn should be interrupted (e.g., for blocking questions).
+async fn check_incoming_messages(
+    incoming_msg_rx: &mut Option<UnboundedReceiver<GatewayToAgent>>,
+) -> Result<Option<String>> {
+    if let Some(ref mut rx) = incoming_msg_rx {
+        // Non-blocking check for messages
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                GatewayToAgent::Answer { question_id, answer } => {
+                    info!("Received answer to question {}: {}", question_id, answer);
+                    // For now, just log it - TODO: match with pending questions
+                    return Ok(Some(format!("Received answer: {}", answer)));
+                },
+                GatewayToAgent::Instruction { instruction_id, content } => {
+                    info!("Received instruction {}: {}", instruction_id, content);
+                    // Return the instruction to be injected into the conversation
+                    return Ok(Some(format!("🎯 **New instruction from orchestrator:** {}", content)));
+                },
+                _ => {
+                    warn!("Unexpected message type in agent loop: {:?}", msg);
+                }
+            }
+        }
+    }
+    Ok(None)
+}
 
 /// Result of a single conversation turn.
 pub struct TurnResult {
@@ -37,6 +66,7 @@ pub async fn run_turn_streaming(
     user_images: &[ImageAttachment],
     _session_id: Uuid,
     text_tx: Sender<String>,
+    mut incoming_msg_rx: Option<UnboundedReceiver<bat_types::ipc::GatewayToAgent>>,
 ) -> Result<TurnResult> {
     let mut messages = history_to_anthropic(history);
     messages.push(AnthropicMessage {
@@ -58,6 +88,19 @@ pub async fn run_turn_streaming(
 
     for iteration in 0..MAX_TOOL_ITERATIONS {
         info!("LLM call iteration {}", iteration + 1);
+
+        // Check for incoming messages between iterations
+        if let Some(message_content) = check_incoming_messages(&mut incoming_msg_rx).await? {
+            info!("Processing incoming message: {}", message_content);
+            // Inject the message into the conversation as a user message
+            messages.push(AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!([{
+                    "type": "text",
+                    "text": message_content
+                }]),
+            });
+        }
 
         let request = ChatRequest {
             model: model.to_string(),
@@ -139,7 +182,7 @@ pub async fn run_turn(
 ) -> Result<TurnResult> {
     let (tx, _rx) = tokio::sync::mpsc::channel(128);
     run_turn_streaming(
-        client, registry, model, system_prompt, history, user_content, &[], session_id, tx,
+        client, registry, model, system_prompt, history, user_content, &[], session_id, tx, None,
     )
     .await
 }

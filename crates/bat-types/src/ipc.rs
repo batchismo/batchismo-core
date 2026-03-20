@@ -144,6 +144,12 @@ pub enum ProcessAction {
         session_key: String,
         instruction: String,
     },
+    /// Answer a question from a sub-agent.
+    AnswerSubagent {
+        session_key: String,
+        question_id: String,
+        answer: String,
+    },
 }
 
 /// Result of a process management request.
@@ -186,6 +192,8 @@ pub enum ProcessResult {
     SubagentResumed,
     /// Instruction sent to sub-agent.
     SubagentInstructed,
+    /// Answer sent to sub-agent.
+    SubagentAnswered,
 }
 
 /// Info about a managed process.

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde_json::{Value, json};
+use uuid::Uuid;
 use crate::gateway_bridge::GatewayBridge;
 
 pub struct SessionAnswer {
@@ -46,12 +47,27 @@ impl super::ToolExecutor for SessionAnswer {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required 'answer' parameter"))?;
 
-        // For now, return a placeholder - this will need proper implementation
-        // when we have the full message routing system
-        Ok(json!({
-            "status": "answered",
-            "session_key": session_key,
-            "message": format!("Answer sent to sub-agent {}: {}", session_key, answer)
-        }).to_string())
+        // Generate a question ID for tracking (in the future we'll get this from the question)
+        let question_id = Uuid::new_v4().to_string();
+
+        // Send the answer request to the gateway
+        let action = bat_types::ipc::ProcessAction::AnswerSubagent {
+            session_key: session_key.to_string(),
+            question_id,
+            answer: answer.to_string(),
+        };
+
+        let result = self.bridge.request(action);
+        match result {
+            bat_types::ipc::ProcessResult::SubagentAnswered => {
+                Ok(format!("Answer successfully sent to sub-agent {}: {}", session_key, answer))
+            },
+            bat_types::ipc::ProcessResult::Error { message } => {
+                Err(anyhow::anyhow!("Failed to answer sub-agent: {}", message))
+            },
+            _ => {
+                Err(anyhow::anyhow!("Unexpected response when answering sub-agent"))
+            }
+        }
     }
 }
