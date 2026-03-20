@@ -205,3 +205,133 @@ pub struct ProcessInfo {
     pub exit_code: Option<i32>,
     pub started_at: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_question_message_serialization() {
+        let question_msg = AgentToGateway::Question {
+            question_id: "test-q-123".to_string(),
+            question: "What should I do next?".to_string(),
+            context: "I'm processing files and need guidance".to_string(),
+            blocking: true,
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&question_msg).unwrap();
+        assert!(json.contains("What should I do next?"));
+        assert!(json.contains("blocking"));
+
+        // Test deserialization
+        let deserialized: AgentToGateway = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            AgentToGateway::Question { question_id, question, context, blocking } => {
+                assert_eq!(question_id, "test-q-123");
+                assert_eq!(question, "What should I do next?");
+                assert_eq!(context, "I'm processing files and need guidance");
+                assert_eq!(blocking, true);
+            }
+            _ => panic!("Wrong message type after deserialization"),
+        }
+    }
+
+    #[test]
+    fn test_answer_message_serialization() {
+        let answer_msg = GatewayToAgent::Answer {
+            question_id: "test-q-123".to_string(),
+            answer: "Continue with the current approach".to_string(),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&answer_msg).unwrap();
+        assert!(json.contains("Continue with the current approach"));
+
+        // Test deserialization
+        let deserialized: GatewayToAgent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            GatewayToAgent::Answer { question_id, answer } => {
+                assert_eq!(question_id, "test-q-123");
+                assert_eq!(answer, "Continue with the current approach");
+            }
+            _ => panic!("Wrong message type after deserialization"),
+        }
+    }
+
+    #[test]
+    fn test_progress_message_serialization() {
+        let progress_msg = AgentToGateway::Progress {
+            summary: "Processed 7 of 14 files".to_string(),
+            percent: Some(50.0),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&progress_msg).unwrap();
+        assert!(json.contains("Processed 7 of 14 files"));
+        assert!(json.contains("50"));
+
+        // Test deserialization
+        let deserialized: AgentToGateway = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            AgentToGateway::Progress { summary, percent } => {
+                assert_eq!(summary, "Processed 7 of 14 files");
+                assert_eq!(percent, Some(50.0));
+            }
+            _ => panic!("Wrong message type after deserialization"),
+        }
+    }
+
+    #[test]
+    fn test_instruction_message_serialization() {
+        let instruction_msg = GatewayToAgent::Instruction {
+            instruction_id: "inst-456".to_string(),
+            content: "Change approach to use JSON format instead".to_string(),
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&instruction_msg).unwrap();
+        assert!(json.contains("Change approach to use JSON format"));
+
+        // Test deserialization
+        let deserialized: GatewayToAgent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            GatewayToAgent::Instruction { instruction_id, content } => {
+                assert_eq!(instruction_id, "inst-456");
+                assert_eq!(content, "Change approach to use JSON format instead");
+            }
+            _ => panic!("Wrong message type after deserialization"),
+        }
+    }
+
+    #[test]
+    fn test_lifecycle_process_actions() {
+        // Test PauseSubagent
+        let pause_action = ProcessAction::PauseSubagent {
+            session_key: "subagent-123".to_string(),
+        };
+        let json = serde_json::to_string(&pause_action).unwrap();
+        assert!(json.contains("PauseSubagent"));
+        assert!(json.contains("subagent-123"));
+
+        // Test ResumeSubagent
+        let resume_action = ProcessAction::ResumeSubagent {
+            session_key: "subagent-123".to_string(),
+            instructions: Some("Continue with new parameters".to_string()),
+        };
+        let json = serde_json::to_string(&resume_action).unwrap();
+        assert!(json.contains("ResumeSubagent"));
+        assert!(json.contains("Continue with new parameters"));
+
+        // Test deserialization roundtrip
+        let deserialized: ProcessAction = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ProcessAction::ResumeSubagent { session_key, instructions } => {
+                assert_eq!(session_key, "subagent-123");
+                assert_eq!(instructions, Some("Continue with new parameters".to_string()));
+            }
+            _ => panic!("Wrong action type after deserialization"),
+        }
+    }
+}
