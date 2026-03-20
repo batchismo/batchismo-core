@@ -30,6 +30,14 @@ export interface Message {
   created_at: string
   token_input: number | null
   token_output: number | null
+  // Question from sub-agent
+  question?: {
+    question_id: string
+    question: string
+    context: string
+    blocking: boolean
+    answered?: boolean
+  }
 }
 
 export interface SessionMeta {
@@ -59,6 +67,8 @@ export type BatEvent =
   | { type: 'TurnComplete'; message: Message }
   | { type: 'Error'; message: string }
   | { type: 'AuditLog'; level: string; category: string; event: string; summary: string; detail_json: string | null }
+  | { type: 'Question'; question_id: string; question: string; context: string; blocking: boolean }
+  | { type: 'Progress'; summary: string; percent?: number }
 
 // Settings types
 export interface ToolInfo {
@@ -240,7 +250,7 @@ export interface ModelUsage {
 }
 
 // Subagent types
-export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+export type SubagentStatus = 'running' | 'waiting_for_answer' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'timed_out' | 'archived'
 
 export interface SubagentInfo {
   sessionId: string
@@ -253,6 +263,20 @@ export interface SubagentInfo {
   summary: string | null
   tokenInput: number
   tokenOutput: number
+  progress?: SubagentProgress
+  pendingQuestion?: PendingQuestion
+}
+
+export interface SubagentProgress {
+  summary: string
+  percent?: number
+}
+
+export interface PendingQuestion {
+  questionId: string
+  question: string
+  context: string
+  blocking: boolean
 }
 
 // ElevenLabs voice (fetched from API)

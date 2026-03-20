@@ -4,16 +4,24 @@ import { getSubagents } from '../lib/tauri'
 
 const STATUS_COLORS: Record<string, string> = {
   running: 'text-blue-400 bg-blue-400/10 border-blue-400/30',
+  waiting_for_answer: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30',
+  paused: 'text-purple-400 bg-purple-400/10 border-purple-400/30',
   completed: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30',
   failed: 'text-red-400 bg-red-400/10 border-red-400/30',
   cancelled: 'text-zinc-400 bg-zinc-400/10 border-zinc-400/30',
+  timed_out: 'text-orange-400 bg-orange-400/10 border-orange-400/30',
+  archived: 'text-zinc-500 bg-zinc-500/10 border-zinc-500/30',
 }
 
 const STATUS_ICONS: Record<string, string> = {
   running: '⏳',
+  waiting_for_answer: '❓',
+  paused: '⏸️',
   completed: '✅',
   failed: '❌',
   cancelled: '⏹',
+  timed_out: '⏰',
+  archived: '📦',
 }
 
 function timeAgo(isoDate: string): string {
@@ -134,10 +142,21 @@ function SubagentCard({ agent, expanded, onToggle }: {
   const statusClass = STATUS_COLORS[agent.status] || STATUS_COLORS.cancelled
   const icon = STATUS_ICONS[agent.status] || '❓'
 
+  const handleLifecycleAction = (action: string) => {
+    // Send tool call through chat to manage subagent lifecycle
+    const message = `session_${action} ${agent.sessionKey}`
+    import('../lib/tauri').then(({ sendMessage }) => {
+      sendMessage(message)
+    })
+  }
+
   return (
     <div
       className={`border rounded-lg bg-zinc-900/50 overflow-hidden transition-colors ${
-        agent.status === 'running' ? 'border-blue-500/20' : 'border-zinc-800'
+        agent.status === 'running' ? 'border-blue-500/20' : 
+        agent.status === 'waiting_for_answer' ? 'border-yellow-500/20' :
+        agent.status === 'paused' ? 'border-purple-500/20' :
+        'border-zinc-800'
       }`}
     >
       <button
@@ -151,7 +170,7 @@ function SubagentCard({ agent, expanded, onToggle }: {
               {agent.label}
             </span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${statusClass}`}>
-              {agent.status}
+              {agent.status.replace('_', ' ')}
             </span>
           </div>
           <div className="text-xs text-zinc-500 mt-0.5">
@@ -162,6 +181,22 @@ function SubagentCard({ agent, expanded, onToggle }: {
               </span>
             )}
           </div>
+          {/* Progress indicator */}
+          {agent.progress && (
+            <div className="text-xs text-blue-400 mt-1">
+              {agent.progress.summary}
+              {agent.progress.percent && (
+                <span className="ml-1 text-zinc-500">({Math.round(agent.progress.percent)}%)</span>
+              )}
+            </div>
+          )}
+          {/* Question indicator */}
+          {agent.pendingQuestion && (
+            <div className="text-xs text-yellow-400 mt-1 flex items-center gap-1">
+              <span>❓</span>
+              <span>Waiting for answer</span>
+            </div>
+          )}
         </div>
         <svg
           className={`w-4 h-4 text-zinc-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -173,10 +208,74 @@ function SubagentCard({ agent, expanded, onToggle }: {
 
       {expanded && (
         <div className="px-3 pb-3 border-t border-zinc-800 pt-2 space-y-2">
+          {/* Lifecycle control buttons */}
+          {(agent.status === 'running' || agent.status === 'waiting_for_answer') && (
+            <div className="flex gap-1">
+              <button
+                onClick={() => handleLifecycleAction('pause')}
+                className="text-xs px-2 py-1 bg-purple-600/20 text-purple-400 border border-purple-600/30 rounded hover:bg-purple-600/30 transition-colors"
+                title="Pause subagent"
+              >
+                ⏸️ Pause
+              </button>
+              <button
+                onClick={() => handleLifecycleAction('cancel')}
+                className="text-xs px-2 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded hover:bg-red-600/30 transition-colors"
+                title="Cancel subagent"
+              >
+                ❌ Cancel
+              </button>
+            </div>
+          )}
+          {agent.status === 'paused' && (
+            <div className="flex gap-1">
+              <button
+                onClick={() => handleLifecycleAction('resume')}
+                className="text-xs px-2 py-1 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors"
+                title="Resume subagent"
+              >
+                ▶️ Resume
+              </button>
+              <button
+                onClick={() => handleLifecycleAction('cancel')}
+                className="text-xs px-2 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded hover:bg-red-600/30 transition-colors"
+                title="Cancel subagent"
+              >
+                ❌ Cancel
+              </button>
+            </div>
+          )}
+
           <div>
             <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Task</span>
             <p className="text-xs text-zinc-300 mt-0.5 whitespace-pre-wrap">{agent.task}</p>
           </div>
+          
+          {agent.progress && (
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Progress</span>
+              <p className="text-xs text-blue-400 mt-0.5">{agent.progress.summary}</p>
+              {agent.progress.percent && (
+                <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-1">
+                  <div 
+                    className="bg-blue-500 h-1.5 rounded-full transition-all"
+                    style={{ width: `${agent.progress.percent}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {agent.pendingQuestion && (
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Question</span>
+              <p className="text-xs text-yellow-300 mt-0.5 whitespace-pre-wrap">{agent.pendingQuestion.question}</p>
+              {agent.pendingQuestion.context && (
+                <p className="text-xs text-zinc-400 mt-1 whitespace-pre-wrap">{agent.pendingQuestion.context}</p>
+              )}
+            </div>
+          )}
+
           {agent.summary && (
             <div>
               <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Summary</span>
