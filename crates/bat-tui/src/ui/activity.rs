@@ -126,7 +126,7 @@ pub fn render(f: &mut Frame, app: &App) {
     let completed = app.subagents.iter().filter(|s| s.status == bat_types::session::SubagentStatus::Completed).count();
     let failed = app.subagents.iter().filter(|s| s.status == bat_types::session::SubagentStatus::Failed || s.status == bat_types::session::SubagentStatus::TimedOut).count();
     let total = app.subagents.len();
-    let status = format!("  {total} total  |  {running} running  |  {completed} completed  |  {failed} failed  |  [c] cancel  [r] refresh");
+    let status = format!("  {total} total  |  {running} running  |  {completed} completed  |  {failed} failed  |  [c] cancel  [p] pause  [u] resume  [r] refresh");
     let bar = Paragraph::new(status)
         .style(Style::default().fg(Color::DarkGray).bg(Color::Rgb(30, 30, 30)));
     f.render_widget(bar, chunks[2]);

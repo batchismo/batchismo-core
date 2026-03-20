@@ -48,7 +48,18 @@ fn render_messages(f: &mut Frame, app: &App, area: Rect) {
 
         // Message content
         for text_line in msg.content.lines() {
-            lines.push(Line::from(text_line.to_string()));
+            // Check if this line contains a sub-agent question
+            if text_line.contains("Sub-agent Question:") || 
+               text_line.contains("Question from") || 
+               (msg.role == Role::System && text_line.contains("?")) {
+                // Render as question with [?] prefix
+                lines.push(Line::from(vec![
+                    Span::styled("[?] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(text_line, Style::default().fg(Color::Yellow))
+                ]));
+            } else {
+                lines.push(Line::from(text_line.to_string()));
+            }
         }
 
         // Tool calls

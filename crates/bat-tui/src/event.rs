@@ -759,6 +759,26 @@ async fn handle_activity_key(app: &mut App, key: KeyEvent) -> anyhow::Result<()>
                 }
             }
         }
+        KeyCode::Char('p') => {
+            // Pause the selected running subagent
+            if let Some(agent) = app.subagents.get(app.activity_cursor) {
+                if agent.status == bat_types::session::SubagentStatus::Running
+                    || agent.status == bat_types::session::SubagentStatus::WaitingForAnswer
+                {
+                    let _ = app.gateway.pause_subagent(agent.session_id).await;
+                    app.refresh_subagents().await;
+                }
+            }
+        }
+        KeyCode::Char('u') => {
+            // Resume (unpause) the selected paused subagent
+            if let Some(agent) = app.subagents.get(app.activity_cursor) {
+                if agent.status == bat_types::session::SubagentStatus::Paused {
+                    let _ = app.gateway.resume_subagent(agent.session_id, None).await;
+                    app.refresh_subagents().await;
+                }
+            }
+        }
         _ => {}
     }
     Ok(())

@@ -705,6 +705,28 @@ impl Gateway {
         Ok(())
     }
 
+    /// Pause a running subagent by session ID.
+    pub async fn pause_subagent(&self, session_id: uuid::Uuid) -> Result<()> {
+        self.db.update_subagent_status(
+            session_id,
+            bat_types::session::SubagentStatus::Paused,
+            Some("Paused by user"),
+        )?;
+        // TODO: Send pause signal to the running agent process
+        Ok(())
+    }
+
+    /// Resume a paused subagent by session ID.
+    pub async fn resume_subagent(&self, session_id: uuid::Uuid, instructions: Option<String>) -> Result<()> {
+        self.db.update_subagent_status(
+            session_id,
+            bat_types::session::SubagentStatus::Running,
+            instructions.as_deref(),
+        )?;
+        // TODO: Send resume signal with optional new instructions to the agent process
+        Ok(())
+    }
+
     /// Get all subagent sessions for the main session.
     pub async fn get_subagents(&self) -> Result<Vec<bat_types::session::SubagentInfo>> {
         let session = self.session_manager.get_or_create_main()?;
