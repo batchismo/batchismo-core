@@ -223,7 +223,16 @@ pub fn is_onboarding_complete(state: State<'_, AppState>) -> bool {
 /// Validate an Anthropic API key.
 #[tauri::command]
 pub async fn validate_api_key(key: String) -> Result<bool, String> {
-    bat_gateway::Gateway::validate_api_key(&key)
+    bat_gateway::Gateway::validate_anthropic_key(&key)
+        .await
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+/// Validate an OpenAI API key.
+#[tauri::command]
+pub async fn validate_openai_key(key: String) -> Result<bool, String> {
+    bat_gateway::Gateway::validate_openai_key(&key)
         .await
         .map(|_| true)
         .map_err(|e| e.to_string())

@@ -117,6 +117,7 @@ fn main() {
             commands::preview_memory_backup,
             commands::is_onboarding_complete,
             commands::validate_api_key,
+            commands::validate_openai_key,
             commands::complete_onboarding,
             commands::get_audit_logs,
             commands::get_audit_stats,

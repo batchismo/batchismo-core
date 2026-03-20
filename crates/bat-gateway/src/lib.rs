@@ -1015,6 +1015,10 @@ impl Gateway {
 
     /// Validate an Anthropic API key by making a minimal API call.
     pub async fn validate_api_key(key: &str) -> Result<()> {
+        Self::validate_anthropic_key(key).await
+    }
+
+    pub async fn validate_anthropic_key(key: &str) -> Result<()> {
         let client = reqwest::Client::new();
         let resp = client
             .post("https://api.anthropic.com/v1/messages")
@@ -1043,6 +1047,28 @@ impl Gateway {
         }
     }
 
+    pub async fn validate_openai_key(key: &str) -> Result<()> {
+        let client = reqwest::Client::new();
+        let resp = client
+            .get("https://api.openai.com/v1/models")
+            .header("Authorization", format!("Bearer {}", key))
+            .send()
+            .await
+            .context("Failed to reach OpenAI API")?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            if status.as_u16() == 401 {
+                anyhow::bail!("Invalid API key")
+            } else {
+                anyhow::bail!("API error ({}): {}", status, body)
+            }
+        }
+    }
+
     /// Complete onboarding: set name, API key, path policies, write IDENTITY.md.
     pub async fn complete_onboarding(
         &self,
@@ -1055,16 +1081,30 @@ impl Gateway {
         {
             let mut cfg = self.config.write().unwrap();
             cfg.agent.name = name.clone();
-            cfg.agent.api_key = Some(api_key.clone()); // legacy compat
-            cfg.api_keys.anthropic = Some(api_key);
-            if let Some(ref oai_key) = openai_api_key {
+            
+            // Determine provider and set appropriate keys and model
+            if !api_key.is_empty() {
+                // Anthropic provider
+                cfg.agent.api_key = Some(api_key.clone()); // legacy compat
+                cfg.api_keys.anthropic = Some(api_key);
+                // Keep current Claude model or set default
+                if !cfg.agent.model.starts_with("claude-") {
+                    cfg.agent.model = "claude-sonnet-4-6".to_string();
+                }
+            } else if let Some(ref oai_key) = openai_api_key {
                 if !oai_key.is_empty() {
+                    // OpenAI provider
                     cfg.api_keys.openai = Some(oai_key.clone());
+                    cfg.agent.model = "gpt-4o".to_string();
                     // Auto-enable voice features when OpenAI key is provided
                     cfg.voice.tts_enabled = true;
                     cfg.voice.stt_enabled = true;
                 }
+            } else {
+                // Ollama provider - no API key needed
+                cfg.agent.model = "llama3.2".to_string(); // Default Ollama model
             }
+            
             cfg.agent.onboarding_complete = true;
             config::save_config(&cfg)?;
         }

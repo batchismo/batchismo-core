@@ -14,9 +14,12 @@ export function WelcomeStep({ onNext }: Props) {
 
       <h1 className="text-2xl font-bold text-white mb-2">Welcome to Batchismo</h1>
       <p className="text-zinc-400 mb-6 leading-relaxed">
-        Your AI that actually works on your computer. Batchismo is a personal AI agent
-        that can read and write files, answer questions, and help you get things done — all
-        running locally on your machine.
+        Your AI that actually works on your computer.
+      </p>
+      <p className="text-zinc-400 mb-6 leading-relaxed">
+        Batchismo is a personal AI agent that can read and write files, answer questions, 
+        and help you get things done — all running locally on your machine with the security 
+        and privacy you control.
       </p>
 
       <p className="text-zinc-500 text-sm mb-8">
