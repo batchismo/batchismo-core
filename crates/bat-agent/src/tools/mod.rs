@@ -48,7 +48,7 @@ impl ToolRegistry {
     }
 
     /// Create a registry with only orchestrator (session management) tools.
-    pub fn with_orchestrator_tools(bridge: GatewayBridge, disabled: &[String]) -> Self {
+    pub fn with_orchestrator_tools(bridge: GatewayBridge, policies: Vec<PathPolicy>, disabled: &[String]) -> Self {
         let mut reg = Self::new();
 
         // Only include session management tools for orchestrator
@@ -72,6 +72,14 @@ impl ToolRegistry {
         }
         if !disabled.contains(&"session_cancel".to_string()) {
             reg.register(Box::new(session_cancel::SessionCancel::new(bridge)));
+        }
+
+        // Read-only filesystem tools for direct info gathering
+        if !disabled.contains(&"fs_list".to_string()) {
+            reg.register(Box::new(fs_list::FsList::new(policies.clone())));
+        }
+        if !disabled.contains(&"fs_read".to_string()) {
+            reg.register(Box::new(fs_read::FsRead::new(policies)));
         }
 
         reg

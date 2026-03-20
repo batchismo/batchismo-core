@@ -225,7 +225,7 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
     // Choose tool registry based on session kind
     let registry = if session_kind == "main" {
         // Orchestrator/main sessions only get session management tools
-        tools::ToolRegistry::with_orchestrator_tools(bridge, &disabled_tools)
+        tools::ToolRegistry::with_orchestrator_tools(bridge, path_policies.clone(), &disabled_tools)
     } else {
         // Worker/subagent sessions get all action tools
         tools::ToolRegistry::with_default_tools(path_policies, &disabled_tools, Some(bridge))

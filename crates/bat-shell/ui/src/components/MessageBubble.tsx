@@ -4,6 +4,11 @@ import type { Message } from '../types'
 import { ToolCallBlock } from './ToolCallBlock'
 import { sendMessage } from '../lib/tauri'
 
+const ORCHESTRATION_TOOLS = new Set([
+  'session_spawn', 'session_status', 'session_pause',
+  'session_resume', 'session_instruct', 'session_cancel', 'session_answer'
+])
+
 interface Props {
   message: Message
 }
@@ -36,6 +41,20 @@ export function MessageBubble({ message }: Props) {
           <div className="mb-2">
             {message.tool_calls.map((tc) => {
               const result = message.tool_results.find(r => r.tool_call_id === tc.id)
+              if (ORCHESTRATION_TOOLS.has(tc.name)) {
+                // Compact one-liner for orchestration tools
+                const icon = tc.name === 'session_spawn' ? '🔀' : tc.name === 'session_status' ? '📡' : '🔗'
+                const label = tc.name === 'session_spawn'
+                  ? `Spawned: "${(tc.input as any)?.label || (tc.input as any)?.task?.slice(0, 40) || 'worker'}"`
+                  : tc.name === 'session_status'
+                  ? 'Checking workers...'
+                  : tc.name
+                return (
+                  <div key={tc.id} className="text-xs text-zinc-500 py-0.5 px-1">
+                    {icon} {label}
+                  </div>
+                )
+              }
               return <ToolCallBlock key={tc.id} toolCall={tc} result={result} />
             })}
           </div>

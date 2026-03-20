@@ -1565,6 +1565,11 @@ fn handle_subagent_action(
 
                     tokio::spawn(async move {
                         info!("Subagent starting: key={sub_key}, task={}", &task[..task.len().min(60)]);
+                        // Clone values needed after run_agent_turn (which moves them)
+                        let sm_post = sm.clone();
+                        let pm_post = pm.clone();
+                        let cfg2_post = cfg2.clone();
+                        let tg_state_post = tg_state.clone();
                         let result = run_agent_turn(
                             sub_id, model, sub_prompt, vec![], task.clone(),
                             vec![],  // Subagents don't receive images
@@ -1574,9 +1579,28 @@ fn handle_subagent_action(
                             tg_state,
                             None, // Subagents don't have dedicated Telegram reply channels
                         ).await;
+                        // Rebind for use in match arms
+                        let sm = sm_post;
+                        let pm = pm_post;
+                        let cfg2 = cfg2_post;
+                        let tg_state = tg_state_post;
                         match result {
                             Ok(()) => {
-                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Completed, Some("Task completed successfully."));
+                                // IMPL-01: Read subagent's actual last assistant message as summary
+                                let summary = sm.get_history(sub_id)
+                                    .ok()
+                                    .and_then(|h| h.iter().rev()
+                                        .find(|m| m.role == bat_types::message::Role::Assistant)
+                                        .map(|m| {
+                                            let content = &m.content;
+                                            if content.len() > 2000 {
+                                                format!("{}...", &content[..2000])
+                                            } else {
+                                                content.clone()
+                                            }
+                                        }))
+                                    .unwrap_or_else(|| "Task completed (no output captured)".to_string());
+                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Completed, Some(&summary));
                                 eb.send(AgentToGateway::AuditLog {
                                     level: "info".into(), category: "agent".into(),
                                     event: "subagent_complete".into(),
@@ -1584,9 +1608,65 @@ fn handle_subagent_action(
                                     detail_json: None,
                                 });
                                 info!("Subagent completed: key={sub_key}");
+
+                                // === IMPL-02: Announce results back to parent orchestrator ===
+                                let announce_summary = sm.get_history(sub_id)
+                                    .ok()
+                                    .and_then(|h| h.iter().rev()
+                                        .find(|m| m.role == bat_types::message::Role::Assistant)
+                                        .map(|m| {
+                                            if m.content.len() > 3000 {
+                                                format!("{}...(truncated)", &m.content[..3000])
+                                            } else {
+                                                m.content.clone()
+                                            }
+                                        }))
+                                    .unwrap_or_else(|| "(no output)".to_string());
+
+                                let announce_msg = format!(
+                                    "[Subagent completed: \"{label}\"]\n\nResults:\n{announce_summary}\n\nSummarize this for the user naturally and briefly."
+                                );
+
+                                let parent_session = db2.get_session(session_id);
+                                if let Ok(Some(_parent)) = parent_session {
+                                    let history = sm.get_history(session_id).unwrap_or_default();
+                                    let user_msg = bat_types::message::Message::user(session_id, &announce_msg);
+                                    let _ = sm.append_message(&user_msg);
+
+                                    let (cfg_model, disabled_tools, agent_env) = {
+                                        let cfg = cfg2.read().unwrap();
+                                        (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), build_agent_env(&cfg))
+                                    };
+                                    let system_prompt = {
+                                        let cfg = cfg2.read().unwrap();
+                                        let policies = db2.get_path_policies().unwrap_or_default();
+                                        crate::system_prompt::build_orchestrator_prompt(&cfg, &policies).unwrap_or_default()
+                                    };
+                                    let path_policies = db2.get_path_policies().unwrap_or_default();
+
+                                    let eb2 = eb.clone();
+                                    let sm2 = Arc::new(session::SessionManager::new(db2.clone(), cfg_model.clone()));
+                                    let db3 = db2.clone();
+                                    let pm2 = pm.clone();
+                                    let cfg3 = cfg2.clone();
+                                    let tg2 = tg_state.clone();
+
+                                    tokio::spawn(async move {
+                                        if let Err(e) = run_agent_turn(
+                                            session_id, cfg_model, system_prompt, history, announce_msg,
+                                            vec![], path_policies, disabled_tools, agent_env,
+                                            eb2, sm2, db3, pm2, cfg3,
+                                            "main".to_string(),
+                                            tg2,
+                                            None,
+                                        ).await {
+                                            error!("Failed to announce subagent results: {e}");
+                                        }
+                                    });
+                                }
                             }
                             Err(e) => {
-                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Failed, Some(&e.to_string()));
+                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Failed, Some(&format!("Error: {e}")));
                                 eb.send(AgentToGateway::AuditLog {
                                     level: "error".into(), category: "agent".into(),
                                     event: "subagent_failed".into(),
