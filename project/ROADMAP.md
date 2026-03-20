@@ -1,7 +1,7 @@
 # Batchismo — Post-v0.4.5 Roadmap
 **Created:** 2026-03-20
 **Branch:** `dev`
-**Status:** In Progress
+**Status:** Complete - Ready for v0.5.0 Release
 
 Work items are tackled linearly, one at a time. Update status as each completes.
 
@@ -96,18 +96,18 @@ Hot-reloadable skills, Discord adapter, web tools polish, metrics dashboard.
 ---
 
 ## Track 6: §23 Phase 2 — Request Classifier + Cost Routing
-**Status:** ⬜ Not Started
+**Status:** ✅ Completed
 **PRD Ref:** Section 23.5
 
 ### What
 Auto-route requests to the right model based on complexity/domain. Cost governor.
 
 ### Tasks
-- [ ] Request classifier (rule-based initially)
-- [ ] Routing strategies (cost-optimized, quality-optimized, balanced)
-- [ ] Cost governor with budget limits
-- [ ] UI for routing preferences
-- [ ] Tests
+- [x] Request classifier (rule-based initially) ✅ Implemented classification by complexity, domain, and capabilities
+- [x] Routing strategies (cost-optimized, quality-optimized, balanced) ✅ All strategies implemented with intelligent model selection
+- [x] Cost governor with budget limits ✅ Daily/session budgets with automatic downgrading
+- [x] UI for routing preferences ✅ Settings UI with strategy picker and budget fields  
+- [x] Tests ✅ Comprehensive unit tests for classification logic
 
 ---
 
@@ -120,3 +120,4 @@ Auto-route requests to the right model based on complexity/domain. Cost governor
 | 2026-03-20 | Track 3 | ✅ Hybrid LLM Routing - Per-task-type model assignment, Settings UI, gateway routing logic, and tests complete |
 | 2026-03-20 | Track 4 | ✅ Skill System & Polish - Hot-reloadable skills with UI, Discord stub adapter, web tools verified, metrics dashboard complete |
 | 2026-03-20 | Track 5 | ✅ Onboarding Wizard - 6-step wizard with provider selection, channel setup, and suggested first tasks complete |
+| 2026-03-20 | Track 6 | ✅ Request Classifier + Cost Routing - Intelligent model routing with cost governance and budget controls complete |
