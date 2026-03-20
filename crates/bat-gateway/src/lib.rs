@@ -1640,7 +1640,7 @@ fn handle_subagent_action(
                                     let system_prompt = {
                                         let cfg = cfg2.read().unwrap();
                                         let policies = db2.get_path_policies().unwrap_or_default();
-                                        crate::system_prompt::build_orchestrator_prompt(&cfg, &policies).unwrap_or_default()
+                                        crate::system_prompt::build_orchestrator_prompt(&cfg, &policies, None).unwrap_or_default()
                                     };
                                     let path_policies = db2.get_path_policies().unwrap_or_default();
 
