@@ -253,6 +253,21 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
     // Step 5: multiplex between text deltas, bridge requests, and pipe responses
     let mut turn_done = false;
     loop {
+        // Check turn_done BEFORE entering select to avoid blocking on
+        // bridge_rx when the text channel is already closed.
+        if turn_done {
+            // Drain any remaining bridge requests
+            while let Ok((request_id, action, resp_tx)) = bridge_rx.rx.try_recv() {
+                pending.register(request_id.clone(), resp_tx);
+                pipe.send(&AgentToGateway::ProcessRequest { request_id, action }).await?;
+                if let Some(msg) = pipe.recv().await? {
+                    if let GatewayToAgent::ProcessResponse { request_id, result } = msg {
+                        pending.deliver(&request_id, result);
+                    }
+                }
+            }
+            break;
+        }
         tokio::select! {
             // Text delta from the agent turn
             chunk = rx.recv() => {
@@ -296,19 +311,6 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
                     }
                 }
             }
-        }
-        if turn_done {
-            // Drain any remaining bridge requests
-            while let Ok((request_id, action, resp_tx)) = bridge_rx.rx.try_recv() {
-                pending.register(request_id.clone(), resp_tx);
-                pipe.send(&AgentToGateway::ProcessRequest { request_id, action }).await?;
-                if let Some(msg) = pipe.recv().await? {
-                    if let GatewayToAgent::ProcessResponse { request_id, result } = msg {
-                        pending.deliver(&request_id, result);
-                    }
-                }
-            }
-            break;
         }
     }
 
