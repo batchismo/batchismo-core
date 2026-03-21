@@ -1609,7 +1609,12 @@ fn handle_subagent_action(
                                 });
                                 info!("Subagent completed: key={sub_key}");
 
-                                // === IMPL-02: Announce results back to parent orchestrator ===
+                                // === IMPL-02: Announce results back to parent session ===
+                                // Lightweight approach: persist as an assistant message and
+                                // emit via event bus so the UI shows it. Do NOT trigger a
+                                // full run_agent_turn — that can deadlock if the parent turn
+                                // is still active or cause infinite loops if the orchestrator
+                                // spawns more subagents in response.
                                 let announce_summary = sm.get_history(sub_id)
                                     .ok()
                                     .and_then(|h| h.iter().rev()
@@ -1623,47 +1628,19 @@ fn handle_subagent_action(
                                         }))
                                     .unwrap_or_else(|| "(no output)".to_string());
 
-                                let announce_msg = format!(
-                                    "[Subagent completed: \"{label}\"]\n\nResults:\n{announce_summary}\n\nSummarize this for the user naturally and briefly."
+                                let announce_text = format!(
+                                    "✅ **{label}** completed\n\n{announce_summary}"
                                 );
 
-                                let parent_session = db2.get_session(session_id);
-                                if let Ok(Some(_parent)) = parent_session {
-                                    let history = sm.get_history(session_id).unwrap_or_default();
-                                    let user_msg = bat_types::message::Message::user(session_id, &announce_msg);
-                                    let _ = sm.append_message(&user_msg);
+                                // Persist as an assistant message in the parent session's history
+                                let announce_msg = bat_types::message::Message::assistant(session_id, &announce_text);
+                                let _ = sm.append_message(&announce_msg);
 
-                                    let (cfg_model, disabled_tools, agent_env) = {
-                                        let cfg = cfg2.read().unwrap();
-                                        (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), build_agent_env(&cfg))
-                                    };
-                                    let system_prompt = {
-                                        let cfg = cfg2.read().unwrap();
-                                        let policies = db2.get_path_policies().unwrap_or_default();
-                                        crate::system_prompt::build_orchestrator_prompt(&cfg, &policies, None).unwrap_or_default()
-                                    };
-                                    let path_policies = db2.get_path_policies().unwrap_or_default();
-
-                                    let eb2 = eb.clone();
-                                    let sm2 = Arc::new(session::SessionManager::new(db2.clone(), cfg_model.clone()));
-                                    let db3 = db2.clone();
-                                    let pm2 = pm.clone();
-                                    let cfg3 = cfg2.clone();
-                                    let tg2 = tg_state.clone();
-
-                                    tokio::spawn(async move {
-                                        if let Err(e) = run_agent_turn(
-                                            session_id, cfg_model, system_prompt, history, announce_msg,
-                                            vec![], path_policies, disabled_tools, agent_env,
-                                            eb2, sm2, db3, pm2, cfg3,
-                                            "main".to_string(),
-                                            tg2,
-                                            None,
-                                        ).await {
-                                            error!("Failed to announce subagent results: {e}");
-                                        }
-                                    });
-                                }
+                                // Emit to UI so it appears in chat immediately
+                                eb.send(AgentToGateway::TurnComplete {
+                                    message: announce_msg,
+                                });
+                                info!("Announced subagent results to parent session: {label}");
                             }
                             Err(e) => {
                                 let _ = db2.update_subagent_status(sub_id, SubagentStatus::Failed, Some(&format!("Error: {e}")));
