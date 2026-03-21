@@ -1,13 +1,54 @@
 import ReactMarkdown from 'react-markdown'
 import { useState } from 'react'
 import type { Message } from '../types'
+import { TOOL_DISPLAY } from '../types'
 import { ToolCallBlock } from './ToolCallBlock'
 import { sendMessage } from '../lib/tauri'
 
-const ORCHESTRATION_TOOLS = new Set([
-  'session_spawn', 'session_status', 'session_pause',
-  'session_resume', 'session_instruct', 'session_cancel', 'session_answer'
-])
+/** Build a compact summary like "read_file, list_directory, 2× session_spawn" */
+function summarizeTools(toolCalls: Message['tool_calls']): string {
+  const counts: Record<string, number> = {}
+  for (const tc of toolCalls) {
+    const display = TOOL_DISPLAY[tc.name]?.name ?? tc.name
+    counts[display] = (counts[display] || 0) + 1
+  }
+  return Object.entries(counts)
+    .map(([name, count]) => count > 1 ? `${count}× ${name}` : name)
+    .join(', ')
+}
+
+function ToolCallGroup({ toolCalls, toolResults }: {
+  toolCalls: Message['tool_calls']
+  toolResults: Message['tool_results']
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const count = toolCalls.length
+  const summary = summarizeTools(toolCalls)
+  const hasError = toolResults.some(r => r.is_error)
+
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors py-1 px-2 rounded hover:bg-zinc-800/50"
+      >
+        <span>{hasError ? '⚠️' : '🔧'}</span>
+        <span>{count} tool{count !== 1 ? 's' : ''} used</span>
+        <span className="text-zinc-600">—</span>
+        <span className="truncate max-w-[300px]">{summary}</span>
+        <span className="ml-auto text-zinc-600">{expanded ? '▲' : '▼'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-1 ml-2 border-l border-zinc-700/50 pl-2">
+          {toolCalls.map((tc) => {
+            const result = toolResults.find(r => r.tool_call_id === tc.id)
+            return <ToolCallBlock key={tc.id} toolCall={tc} result={result} />
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface Props {
   message: Message
@@ -36,28 +77,9 @@ export function MessageBubble({ message }: Props) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
       <div className={`max-w-[85%] ${isUser ? 'order-2' : 'order-1'}`}>
-        {/* Tool calls */}
+        {/* Tool calls — grouped & collapsible */}
         {message.tool_calls.length > 0 && (
-          <div className="mb-2">
-            {message.tool_calls.map((tc) => {
-              const result = message.tool_results.find(r => r.tool_call_id === tc.id)
-              if (ORCHESTRATION_TOOLS.has(tc.name)) {
-                // Compact one-liner for orchestration tools
-                const icon = tc.name === 'session_spawn' ? '🔀' : tc.name === 'session_status' ? '📡' : '🔗'
-                const label = tc.name === 'session_spawn'
-                  ? `Spawned: "${(tc.input as any)?.label || (tc.input as any)?.task?.slice(0, 40) || 'worker'}"`
-                  : tc.name === 'session_status'
-                  ? 'Checking workers...'
-                  : tc.name
-                return (
-                  <div key={tc.id} className="text-xs text-zinc-500 py-0.5 px-1">
-                    {icon} {label}
-                  </div>
-                )
-              }
-              return <ToolCallBlock key={tc.id} toolCall={tc} result={result} />
-            })}
-          </div>
+          <ToolCallGroup toolCalls={message.tool_calls} toolResults={message.tool_results} />
         )}
         {/* Image attachments */}
         {message.images && message.images.length > 0 && (
