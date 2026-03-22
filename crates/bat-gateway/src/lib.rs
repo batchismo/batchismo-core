@@ -1257,6 +1257,7 @@ fn handle_subagent_action(
                     let eb = event_bus.clone();
                     let db2 = db.clone();
                     let sm = Arc::new(session::SessionManager::new(db.clone(), model.clone()));
+                    let sm2 = sm.clone();
                     let pm = proc_mgr.clone();
                     let cfg2 = config.clone();
                     let tg_state = telegram_state.clone();
@@ -1274,7 +1275,20 @@ fn handle_subagent_action(
                         ).await;
                         match result {
                             Ok(()) => {
-                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Completed, Some("Task completed successfully."));
+                                let summary = sm2.get_history(sub_id)
+                                    .ok()
+                                    .and_then(|h| h.iter().rev()
+                                        .find(|m| m.role == bat_types::message::Role::Assistant)
+                                        .map(|m| {
+                                            let content = &m.content;
+                                            if content.len() > 2000 {
+                                                format!("{}...", &content[..2000])
+                                            } else {
+                                                content.clone()
+                                            }
+                                        }))
+                                    .unwrap_or_else(|| "Task completed (no output captured)".to_string());
+                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Completed, Some(&summary));
                                 eb.send(AgentToGateway::AuditLog {
                                     level: "info".into(), category: "agent".into(),
                                     event: "subagent_complete".into(),
@@ -1284,7 +1298,7 @@ fn handle_subagent_action(
                                 info!("Subagent completed: key={sub_key}");
                             }
                             Err(e) => {
-                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Failed, Some(&e.to_string()));
+                                let _ = db2.update_subagent_status(sub_id, SubagentStatus::Failed, Some(&format!("Error: {e}")));
                                 eb.send(AgentToGateway::AuditLog {
                                     level: "error".into(), category: "agent".into(),
                                     event: "subagent_failed".into(),
