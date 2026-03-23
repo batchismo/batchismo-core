@@ -1282,7 +1282,11 @@ fn handle_subagent_action(
                                         .map(|m| {
                                             let content = &m.content;
                                             if content.len() > 2000 {
-                                                format!("{}...", &content[..2000])
+                                                let boundary = content.char_indices()
+                                                    .nth(2000)
+                                                    .map(|(i, _)| i)
+                                                    .unwrap_or(content.len());
+                                                format!("{}...", &content[..boundary])
                                             } else {
                                                 content.clone()
                                             }
