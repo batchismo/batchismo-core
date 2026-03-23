@@ -53,10 +53,10 @@ export interface PathPolicy {
 
 // Tauri bat-event payload types
 export type BatEvent =
-  | { type: 'TextDelta'; content: string }
-  | { type: 'ToolCallStart'; tool_call: ToolCall }
-  | { type: 'ToolCallResult'; result: ToolResult }
-  | { type: 'TurnComplete'; message: Message }
+  | { type: 'TextDelta'; session_id: string; session_kind: string; content: string }
+  | { type: 'ToolCallStart'; session_id: string; session_kind: string; tool_call: ToolCall }
+  | { type: 'ToolCallResult'; session_id: string; session_kind: string; result: ToolResult }
+  | { type: 'TurnComplete'; session_id: string; session_kind: string; message: Message }
   | { type: 'Error'; message: string }
   | { type: 'AuditLog'; level: string; category: string; event: string; summary: string; detail_json: string | null }
 

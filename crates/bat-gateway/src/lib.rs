@@ -428,20 +428,21 @@ impl Gateway {
 
         // Spawn the agent turn in a background task
         tokio::spawn(async move {
-            event_bus.send(AgentToGateway::TextDelta {
-                content: String::new(), // Signal "thinking started"
-            });
-
-            // Determine session kind based on session key
+            // Determine session kind before the first event so it can be tagged
             let session_kind = if active_key == "main" {
                 "main".to_string()
             } else {
-                // Check if this is a subagent session
                 match session.kind {
                     bat_types::session::SessionKind::Main => "main".to_string(),
                     bat_types::session::SessionKind::Subagent { .. } => "subagent".to_string(),
                 }
             };
+
+            event_bus.send(AgentToGateway::TextDelta {
+                session_id: session.id,
+                session_kind: session_kind.clone(),
+                content: String::new(), // Signal "thinking started"
+            });
 
             let is_main = session_kind == "main";
             let user_msg_for_reflection = if is_main { Some(content_owned.clone()) } else { None };
@@ -1259,7 +1260,9 @@ fn handle_subagent_action(
                     let sm = Arc::new(session::SessionManager::new(db.clone(), model.clone()));
                     let sm2 = sm.clone();
                     let pm = proc_mgr.clone();
+                    let pm_notify = proc_mgr.clone();
                     let cfg2 = config.clone();
+                    let cfg_notify = config.clone();
                     let tg_state = telegram_state.clone();
 
                     tokio::spawn(async move {
@@ -1300,6 +1303,21 @@ fn handle_subagent_action(
                                     detail_json: None,
                                 });
                                 info!("Subagent completed: key={sub_key}");
+                                // Notify the orchestrator so it can react without user input
+                                let db3 = db2.clone();
+                                let eb2 = eb.clone();
+                                let label2 = label.clone();
+                                let summary2 = summary.clone();
+                                tokio::spawn(async move {
+                                    let notification = format!(
+                                        "[Subagent complete: {label2}]\n\nSummary: {summary2}"
+                                    );
+                                    if let Err(e) = inject_orchestrator_message(
+                                        &notification, &db3, &cfg_notify, &pm_notify, eb2,
+                                    ).await {
+                                        warn!("Failed to notify orchestrator of subagent completion: {e}");
+                                    }
+                                });
                             }
                             Err(e) => {
                                 let _ = db2.update_subagent_status(sub_id, SubagentStatus::Failed, Some(&format!("Error: {e}")));
@@ -1380,10 +1398,24 @@ fn handle_subagent_action(
                     }
                 }
             }
-            // Fallback: no Telegram active — inform the subagent
-            ProcessResult::OrchestratorAnswer {
-                answer: "No human channel is currently available. Please proceed with your best judgment, or surface this question in your final response so the user can address it.".to_string(),
-            }
+            // No Telegram active — inject the question into the orchestrator session
+            // and run a real orchestrator turn so it can answer autonomously.
+            let db2 = db.clone();
+            let config2 = config.clone();
+            let proc_mgr2 = proc_mgr.clone();
+            let eb2 = event_bus.clone();
+            let msg = format!("[Subagent question]\n\nContext: {context}\n\nQuestion: {question}");
+            let answer = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    inject_orchestrator_message(&msg, &db2, &config2, &proc_mgr2, eb2)
+                        .await
+                        .unwrap_or_else(|e| {
+                            warn!("Orchestrator wake-up failed: {e}");
+                            "Orchestrator unavailable. Proceed with best judgment.".to_string()
+                        })
+                })
+            });
+            ProcessResult::OrchestratorAnswer { answer }
         }
         ProcessAction::PauseSubagent { session_key } => {
             // TODO: Implement actual pause logic when mid-turn message injection is ready
@@ -1402,6 +1434,74 @@ fn handle_subagent_action(
         }
         _ => ProcessResult::Error { message: "Not a subagent action".into() },
     }
+}
+
+/// Inject a message into the orchestrator (main) session and run a fresh orchestrator turn.
+///
+/// Used by `ask_orchestrator` (subagent asks a question) and subagent completion notifications.
+/// Events from the orchestrator turn flow through the shared EventBus, so the UI sees the
+/// orchestrator's response stream in real time.
+///
+/// Returns the orchestrator's final text response so `ask_orchestrator` can relay it back.
+async fn inject_orchestrator_message(
+    content: &str,
+    db: &Arc<Database>,
+    config: &Arc<RwLock<BatConfig>>,
+    proc_mgr: &process_manager::ProcessManager,
+    event_bus: EventBus,
+) -> anyhow::Result<String> {
+    let (model, disabled_tools, agent_env) = {
+        let cfg = config.read().unwrap();
+        (cfg.agent.model.clone(), cfg.agent.disabled_tools.clone(), build_agent_env(&cfg))
+    };
+
+    let session_manager = Arc::new(session::SessionManager::new(db.clone(), model.clone()));
+
+    let session = match db.get_session_by_key("main")? {
+        Some(s) => s,
+        None => db.create_session("main", &model)?,
+    };
+
+    let history = session_manager.get_history(session.id).unwrap_or_default();
+
+    let path_policies = db.get_path_policies().unwrap_or_default();
+    let system_prompt = {
+        let cfg = config.read().unwrap();
+        system_prompt::build_orchestrator_prompt(&cfg, &path_policies)?
+    };
+
+    run_agent_turn(
+        session.id,
+        model,
+        system_prompt,
+        history,
+        content.to_string(),
+        vec![],
+        path_policies,
+        disabled_tools,
+        agent_env,
+        event_bus,
+        session_manager.clone(),
+        db.clone(),
+        proc_mgr.clone(),
+        config.clone(),
+        "main".to_string(),
+        None,
+        None,
+    )
+    .await?;
+
+    // Read the orchestrator's response from DB (persisted by run_agent_turn)
+    let response = session_manager
+        .get_history(session.id)
+        .unwrap_or_default()
+        .into_iter()
+        .rev()
+        .find(|m| m.role == bat_types::message::Role::Assistant)
+        .map(|m| m.content)
+        .unwrap_or_else(|| "Done.".to_string());
+
+    Ok(response)
 }
 
 /// Handle a process management request from the agent.
@@ -1483,10 +1583,10 @@ async fn handle_telegram_turn_events(
     debug!("Telegram turn handler: listening (chat_id={chat_id})");
     while let Some(event) = rx.recv().await {
         match event {
-            AgentToGateway::TextDelta { content } => {
+            AgentToGateway::TextDelta { content, .. } => {
                 pending_text.push_str(&content);
             }
-            AgentToGateway::TurnComplete { ref message } => {
+            AgentToGateway::TurnComplete { ref message, .. } => {
                 info!("Telegram turn handler: TurnComplete, content_len={}", message.content.len());
                 let text = if !message.content.is_empty() {
                     message.content.clone()
@@ -1650,7 +1750,7 @@ async fn run_agent_turn(
 
                 // Audit tool call events + record observations
                 match &event {
-                    AgentToGateway::ToolCallStart { tool_call } => {
+                    AgentToGateway::ToolCallStart { tool_call, .. } => {
                         audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Tool, "tool_call_start",
                             &format!("Tool call: {}", tool_call.name), Some(&sid),
                             Some(&serde_json::to_string(&tool_call.input).unwrap_or_default()));
@@ -1667,13 +1767,13 @@ async fn run_agent_turn(
                             );
                         }
                     }
-                    AgentToGateway::ToolCallResult { result } => {
+                    AgentToGateway::ToolCallResult { result, .. } => {
                         let status = if result.is_error { "error" } else { "success" };
                         let summary = format!("Tool result ({}): {} chars", status, result.content.len());
                         audit(&db, &event_bus, AuditLevel::Info, AuditCategory::Tool, "tool_call_result",
                             &summary, Some(&sid), None);
                     }
-                    AgentToGateway::TurnComplete { ref message } => {
+                    AgentToGateway::TurnComplete { ref message, .. } => {
                         let tokens = format!("in: {}, out: {}",
                             message.token_input.unwrap_or(0),
                             message.token_output.unwrap_or(0));
@@ -1703,7 +1803,7 @@ async fn run_agent_turn(
                 }
 
                 // Persist TurnComplete message to database
-                if let AgentToGateway::TurnComplete { ref message } = event {
+                if let AgentToGateway::TurnComplete { ref message, .. } = event {
                     session_manager
                         .append_message(message)
                         .context("Failed to persist assistant message")?;

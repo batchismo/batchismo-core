@@ -248,7 +248,7 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
             chunk = rx.recv() => {
                 match chunk {
                     Some(text) => {
-                        pipe.send(&AgentToGateway::TextDelta { content: text }).await?;
+                        pipe.send(&AgentToGateway::TextDelta { session_id, session_kind: session_kind.clone(), content: text }).await?;
                     }
                     None => {
                         // Agent turn's text channel closed — turn is finishing
@@ -304,12 +304,16 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
     // Forward tool events (informational — tools already ran in-process)
     for tc in &turn_result.tool_calls {
         pipe.send(&AgentToGateway::ToolCallStart {
+            session_id,
+            session_kind: session_kind.clone(),
             tool_call: tc.clone(),
         })
         .await?;
     }
     for tr in &turn_result.tool_results {
         pipe.send(&AgentToGateway::ToolCallResult {
+            session_id,
+            session_kind: session_kind.clone(),
             result: tr.clone(),
         })
         .await?;
@@ -323,6 +327,8 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
     assistant_msg.tool_results = turn_result.tool_results;
 
     pipe.send(&AgentToGateway::TurnComplete {
+        session_id,
+        session_kind,
         message: assistant_msg,
     })
     .await?;

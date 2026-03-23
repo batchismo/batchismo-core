@@ -214,14 +214,19 @@ impl App {
     /// Handle an event from the gateway event bus.
     pub fn handle_gateway_event(&mut self, event: AgentToGateway) {
         match event {
-            AgentToGateway::TextDelta { content } => {
+            AgentToGateway::TextDelta { content, session_kind, .. } => {
+                // Filter to orchestrator events only. session_kind == "main" is sufficient
+                // while there is a single user-facing session. When multi-session support
+                // is added, switch to filtering on session_id per chat view.
+                if session_kind != "main" { return; }
                 if !self.is_streaming {
                     self.is_streaming = true;
                     self.streaming_text.clear();
                 }
                 self.streaming_text.push_str(&content);
             }
-            AgentToGateway::ToolCallStart { tool_call } => {
+            AgentToGateway::ToolCallStart { tool_call, session_kind, .. } => {
+                if session_kind != "main" { return; }
                 // Append a visual marker into streaming text
                 self.streaming_text.push_str(&format!(
                     "\n🔧 {} ({})\n",
@@ -229,7 +234,8 @@ impl App {
                 ));
                 self.tool_calls_expanded.push(false);
             }
-            AgentToGateway::ToolCallResult { result } => {
+            AgentToGateway::ToolCallResult { result, session_kind, .. } => {
+                if session_kind != "main" { return; }
                 let status = if result.is_error { "❌" } else { "✅" };
                 self.streaming_text.push_str(&format!(
                     "  {} {}\n",
@@ -237,7 +243,8 @@ impl App {
                     truncate_str(&result.content, 120),
                 ));
             }
-            AgentToGateway::TurnComplete { message } => {
+            AgentToGateway::TurnComplete { message, session_kind, .. } => {
+                if session_kind != "main" { return; }
                 self.is_streaming = false;
                 self.streaming_text.clear();
                 self.tool_calls_expanded.clear();
