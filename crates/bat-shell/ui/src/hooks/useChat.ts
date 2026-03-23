@@ -29,6 +29,12 @@ export function useChat() {
   }, [])
 
   const handleEvent = useCallback((event: BatEvent) => {
+    // Filter to orchestrator events only. session_kind === 'main' means the event
+    // came from a non-subagent session, which is sufficient while there is only one
+    // user-facing session. When multi-session support is added, filter on session_id
+    // instead so each chat view only receives events from its own session.
+    if ('session_kind' in event && event.session_kind !== 'main') return
+
     switch (event.type) {
       case 'TextDelta':
         setAgentStatus('thinking')

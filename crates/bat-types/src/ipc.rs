@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::message::{ImageAttachment, Message, ToolCall, ToolResult};
 use crate::policy::PathPolicy;
@@ -46,15 +47,23 @@ pub enum GatewayToAgent {
 #[serde(tag = "type")]
 pub enum AgentToGateway {
     TextDelta {
+        session_id: Uuid,
+        session_kind: String,
         content: String,
     },
     ToolCallStart {
+        session_id: Uuid,
+        session_kind: String,
         tool_call: ToolCall,
     },
     ToolCallResult {
+        session_id: Uuid,
+        session_kind: String,
         result: ToolResult,
     },
     TurnComplete {
+        session_id: Uuid,
+        session_kind: String,
         message: Message,
     },
     Error {

@@ -85,9 +85,20 @@ cd crates/bat-shell/ui && npm install && cd ../../..
 # 3. Set your API key
 export ANTHROPIC_API_KEY=<your-key>
 
-# 4. Run in development mode
-cargo tauri dev --manifest-path crates/bat-shell/Cargo.toml
+# 4. Launch for development
+cargo tauri dev
 ```
+
+### Launching for Development
+
+The `beforeDevCommand` in `tauri.conf.json` handles building `bat-agent`, staging the sidecar binary, and starting the UI dev server automatically. Just run from the repo root:
+
+```powershell
+cd batchismo-core   # repo root
+cargo tauri dev
+```
+
+> **You must run from the repo root.** The `beforeDevCommand` paths are relative to `crates/`.
 
 On first launch, Batchismo creates `~/.batchismo/` with a default `config.toml` and workspace MD files.
 
@@ -287,7 +298,7 @@ Windows `canonicalize()` returns paths with a `\\?\` prefix (extended-length pat
 
 ## Project Status
 
-Batchismo is in active development. Current version: **v0.3.6**
+Batchismo is in active development. Current version: **v0.4.6**
 
 | Phase | Goal | Status |
 |---|---|---|
