@@ -821,10 +821,15 @@ impl Gateway {
             .timeout(std::time::Duration::from_secs(4))
             .build()?;
 
-        // Ollama: GET /api/tags returns 200
+        // Ollama: GET /api/tags returns 200 with {"models": [...]}
+        // LM Studio also returns 200 for unknown endpoints, so verify the body.
         if let Ok(resp) = client.get(&format!("{base}/api/tags")).send().await {
             if resp.status().is_success() {
-                return Ok("Ollama".to_string());
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    if body.get("models").is_some() {
+                        return Ok("Ollama".to_string());
+                    }
+                }
             }
         }
 
@@ -847,32 +852,36 @@ impl Gateway {
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
 
-        // Try Ollama first
+        // Try Ollama first — verify body has "models" key since LM Studio also
+        // returns HTTP 200 for unsupported endpoints.
         if let Ok(resp) = client.get(&format!("{base}/api/tags")).send().await {
             if resp.status().is_success() {
-                let body: serde_json::Value = resp.json().await?;
-                let models = body.get("models").and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter().filter_map(|m| {
-                            let name = m.get("name")?.as_str()?.to_string();
-                            let size = m.get("size").and_then(|v| v.as_u64());
-                            let modified_at = m.get("modified_at").and_then(|v| v.as_str()).map(|s| s.to_string());
-                            let parameter_size = m.get("details")
-                                .and_then(|d| d.get("parameter_size"))
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                            Some(LocalLlmModel {
-                                id: name.clone(),
-                                name,
-                                size,
-                                modified_at,
-                                parameter_size,
-                                provider: "Ollama".to_string(),
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    if body.get("models").is_some() {
+                        let models = body["models"].as_array()
+                            .map(|arr| {
+                                arr.iter().filter_map(|m| {
+                                    let name = m.get("name")?.as_str()?.to_string();
+                                    let size = m.get("size").and_then(|v| v.as_u64());
+                                    let modified_at = m.get("modified_at").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                    let parameter_size = m.get("details")
+                                        .and_then(|d| d.get("parameter_size"))
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string());
+                                    Some(LocalLlmModel {
+                                        id: name.clone(),
+                                        name,
+                                        size,
+                                        modified_at,
+                                        parameter_size,
+                                        provider: "Ollama".to_string(),
+                                    })
+                                }).collect()
                             })
-                        }).collect()
-                    })
-                    .unwrap_or_default();
-                return Ok(models);
+                            .unwrap_or_default();
+                        return Ok(models);
+                    }
+                }
             }
         }
 
@@ -910,7 +919,13 @@ impl Gateway {
             .timeout(std::time::Duration::from_secs(3))
             .build()?;
         if let Ok(resp) = client.get(&format!("{base}/api/tags")).send().await {
-            if resp.status().is_success() { return Ok(true); }
+            if resp.status().is_success() {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    if body.get("models").is_some() {
+                        return Ok(true);
+                    }
+                }
+            }
         }
         if let Ok(resp) = client.get(&format!("{base}/v1/models")).send().await {
             if resp.status().is_success() { return Ok(true); }
