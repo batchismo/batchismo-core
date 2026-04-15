@@ -364,28 +364,65 @@ pub fn get_audit_stats(state: State<'_, AppState>) -> Result<AuditStats, String>
         .map_err(|e| e.to_string())
 }
 
-// ─── Ollama ────────────────────────────────────────────────────────────
+// ─── Local LLM (Ollama / LM Studio) ───────────────────────────────────
 
-/// List locally available Ollama models.
+/// Detect which local LLM provider is running at the configured endpoint.
+/// Returns "Ollama", "LM Studio", or "Unknown".
 #[tauri::command]
-pub async fn ollama_list_models(
+pub async fn local_llm_detect_provider(
     state: State<'_, AppState>,
-) -> Result<Vec<bat_gateway::OllamaModel>, String> {
+) -> Result<String, String> {
     state
         .gateway
-        .ollama_list_models()
+        .local_llm_detect_provider()
         .await
         .map_err(|e| e.to_string())
 }
 
-/// Check if Ollama is reachable.
+/// List locally available models from Ollama or LM Studio.
+#[tauri::command]
+pub async fn local_llm_list_models(
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_gateway::LocalLlmModel>, String> {
+    state
+        .gateway
+        .local_llm_list_models()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check if any local LLM service is reachable.
+#[tauri::command]
+pub async fn local_llm_status(
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    state
+        .gateway
+        .local_llm_status()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Backward-compat: list Ollama models (delegates to local_llm_list_models).
+#[tauri::command]
+pub async fn ollama_list_models(
+    state: State<'_, AppState>,
+) -> Result<Vec<bat_gateway::LocalLlmModel>, String> {
+    state
+        .gateway
+        .local_llm_list_models()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Backward-compat: check Ollama status (delegates to local_llm_status).
 #[tauri::command]
 pub async fn ollama_status(
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     state
         .gateway
-        .ollama_status()
+        .local_llm_status()
         .await
         .map_err(|e| e.to_string())
 }

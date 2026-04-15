@@ -137,7 +137,7 @@ pub async fn wait_for_agent(server: platform::PipeServer) -> Result<AgentPipe> {
 pub struct AgentEnv {
     pub anthropic_key: Option<String>,
     pub openai_key: Option<String>,
-    pub ollama_endpoint: Option<String>,
+    pub local_llm_endpoint: Option<String>,
 }
 
 /// Spawn the bat-agent child process, pointed at the given pipe/socket.
@@ -154,7 +154,7 @@ pub fn spawn_agent(pipe_name: &str, env: &AgentEnv) -> Result<tokio::process::Ch
     if let Some(ref key) = env.openai_key {
         cmd.env("OPENAI_API_KEY", key);
     }
-    if let Some(ref endpoint) = env.ollama_endpoint {
+    if let Some(ref endpoint) = env.local_llm_endpoint {
         cmd.env("OLLAMA_ENDPOINT", endpoint);
     }
 

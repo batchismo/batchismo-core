@@ -206,7 +206,7 @@ async fn run_agent(pipe_name: &str) -> Result<()> {
                 .context("OPENAI_API_KEY not set for OpenAI model")?;
             provider::LlmClient::OpenAICompatible(openai_client::OpenAICompatibleClient::openai(api_key))
         }
-        bat_types::config::LlmProvider::Ollama => {
+        bat_types::config::LlmProvider::Ollama | bat_types::config::LlmProvider::LocalLlm => {
             let endpoint = std::env::var("OLLAMA_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string());
             provider::LlmClient::OpenAICompatible(openai_client::OpenAICompatibleClient::ollama(endpoint))

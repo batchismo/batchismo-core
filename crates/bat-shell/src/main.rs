@@ -129,6 +129,9 @@ fn main() {
             commands::get_active_session_key,
             commands::get_usage_stats,
             commands::fetch_elevenlabs_voices,
+            commands::local_llm_detect_provider,
+            commands::local_llm_list_models,
+            commands::local_llm_status,
             commands::ollama_list_models,
             commands::ollama_status,
         ])

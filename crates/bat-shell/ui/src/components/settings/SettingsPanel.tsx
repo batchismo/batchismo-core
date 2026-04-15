@@ -7,7 +7,7 @@ import { AboutPage } from './AboutPage'
 import { ChannelsPage } from './ChannelsPage'
 import { VoicePage } from './VoicePage'
 import { ApiKeysPage } from './ApiKeysPage'
-import { OllamaPage } from './OllamaPage'
+import { LocalLlmPage } from './LocalLlmPage'
 import { PersonalityPage } from './PersonalityPage'
 import { SandboxPage } from './SandboxPage'
 import { AuditPage } from './AuditPage'
@@ -29,7 +29,7 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
-    id: 'ollama',
+    id: 'local-llm',
     label: 'Local LLM',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -153,7 +153,7 @@ export function SettingsPanel() {
       {/* Page content */}
       <div className="flex-1 overflow-y-auto p-6">
         {activePage === 'api-keys' && <ApiKeysPage />}
-        {activePage === 'ollama' && <OllamaPage />}
+        {activePage === 'local-llm' && <LocalLlmPage />}
         {activePage === 'path-policies' && <PathPoliciesPage />}
         {activePage === 'tools' && <ToolsPage />}
         {activePage === 'agent-config' && <AgentConfigPage />}

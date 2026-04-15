@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats, ElevenLabsVoice, ImageAttachment, DiffLine, OllamaModel } from '../types'
+import type { Message, SessionMeta, PathPolicy, ToolInfo, BatConfig, AuditEntry, AuditFilter, AuditStats, MemoryFileInfo, Observation, ObservationFilter, ObservationSummary, SubagentInfo, UsageStats, ElevenLabsVoice, ImageAttachment, DiffLine, LocalLlmModel, LocalLlmProvider } from '../types'
 
 export const sendMessage = (content: string, images?: ImageAttachment[]): Promise<void> =>
   invoke('send_message', { content, images: images?.length ? images : null })
@@ -103,9 +103,20 @@ export const completeOnboarding = (name: string, apiKey: string, openaiApiKey: s
 export const fetchElevenlabsVoices = (): Promise<ElevenLabsVoice[]> =>
   invoke('fetch_elevenlabs_voices')
 
-// Ollama
-export const ollamaListModels = (): Promise<OllamaModel[]> =>
+// Local LLM (Ollama / LM Studio)
+export const localLlmDetectProvider = (): Promise<LocalLlmProvider> =>
+  invoke('local_llm_detect_provider')
+
+export const localLlmListModels = (): Promise<LocalLlmModel[]> =>
+  invoke('local_llm_list_models')
+
+export const localLlmStatus = (): Promise<boolean> =>
+  invoke('local_llm_status')
+
+/** @deprecated Use localLlmListModels */
+export const ollamaListModels = (): Promise<LocalLlmModel[]> =>
   invoke('ollama_list_models')
 
+/** @deprecated Use localLlmStatus */
 export const ollamaStatus = (): Promise<boolean> =>
   invoke('ollama_status')

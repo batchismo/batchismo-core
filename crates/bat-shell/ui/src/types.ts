@@ -111,15 +111,24 @@ export interface ApiKeys {
   anthropic: string | null
   openai: string | null
   elevenlabs: string | null
-  ollama_endpoint: string | null
+  local_llm_endpoint: string | null
+  /** @deprecated Use local_llm_endpoint */
+  ollama_endpoint?: string | null
 }
 
-export interface OllamaModel {
+export type LocalLlmProvider = 'Ollama' | 'LM Studio' | 'Unknown'
+
+export interface LocalLlmModel {
+  id: string
   name: string
-  size: number
+  size: number | null
   modifiedAt: string | null
   parameterSize: string | null
+  provider: LocalLlmProvider
 }
+
+/** @deprecated Use LocalLlmModel */
+export type OllamaModel = LocalLlmModel
 
 export interface VoiceConfig {
   tts_enabled: boolean
@@ -271,4 +280,4 @@ export interface FolderAccess {
   access: string
   recursive: boolean
 }
-export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'audit' | 'sandbox' | 'ollama' | 'about'
+export type SettingsPage = 'api-keys' | 'path-policies' | 'tools' | 'agent-config' | 'personality' | 'channels' | 'voice' | 'audit' | 'sandbox' | 'local-llm' | 'about'
