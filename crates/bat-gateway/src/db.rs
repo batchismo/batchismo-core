@@ -207,13 +207,34 @@ impl Database {
         Ok(result)
     }
 
-    /// Delete a session and all its messages.
+    /// Delete a session and all its messages (including subagent sessions).
     pub fn delete_session(&self, session_id: Uuid) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let id_str = session_id.to_string();
-        conn.execute("DELETE FROM tool_calls WHERE session_id = ?1", params![id_str])?;
-        conn.execute("DELETE FROM messages WHERE session_id = ?1", params![id_str])?;
-        conn.execute("DELETE FROM sessions WHERE id = ?1", params![id_str])?;
+
+        // Collect all session IDs to delete: the target + any child subagent sessions
+        let sub_ids: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT id FROM sessions WHERE parent_id = ?1")?;
+            let rows = stmt.query_map(params![id_str], |row| row.get::<_, String>(0))?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+
+        let mut all_ids = sub_ids;
+        all_ids.push(id_str);
+
+        // Delete in FK-safe order: tool_calls → messages → sessions
+        // (tool_calls.message_id refs messages, tool_calls.session_id refs sessions,
+        //  messages.session_id refs sessions)
+        for sid in &all_ids {
+            conn.execute("DELETE FROM observations WHERE session_id = ?1", params![sid])?;
+            conn.execute("DELETE FROM audit_log WHERE session_id = ?1", params![sid])?;
+            conn.execute("DELETE FROM tool_calls WHERE session_id = ?1", params![sid])?;
+            conn.execute("DELETE FROM messages WHERE session_id = ?1", params![sid])?;
+        }
+        for sid in &all_ids {
+            conn.execute("DELETE FROM sessions WHERE id = ?1", params![sid])?;
+        }
+
         Ok(())
     }
 

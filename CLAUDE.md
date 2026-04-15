@@ -126,6 +126,14 @@ The gateway handles TTS transparently — when TTS is enabled, agent text respon
 
 When a user provides an OpenAI API key, they should be able to select from available OpenAI voices in the Settings UI.
 
+## Project Management (Asana)
+
+- This project uses Asana for task tracking via the `full-pipeline` skill
+- Board columns: Backlog → In Progress → QA/Review → Done
+- Configure your Asana project and section GIDs in your private Claude project memory (`~/.claude/projects/<project>/memory/MEMORY.md`)
+- Parent tasks represent user stories; subtasks represent implementation steps
+- **Claude may only move tasks as far as "QA/Review".** A human merges the PR and moves to Done.
+
 ## What's Not Built Yet
 
 See README.md for the full roadmap. Don't implement these without a spec:
