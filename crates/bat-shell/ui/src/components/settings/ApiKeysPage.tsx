@@ -63,7 +63,7 @@ export function ApiKeysPage() {
         anthropic: keys.anthropic || null,
         openai: keys.openai || null,
         elevenlabs: keys.elevenlabs || null,
-        ollama_endpoint: config.api_keys?.ollama_endpoint || null,
+        local_llm_endpoint: config.api_keys?.local_llm_endpoint || null,
       },
       // Keep legacy field in sync
       agent: {

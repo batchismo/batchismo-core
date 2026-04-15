@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import type { BatConfig, OllamaModel } from '../../types'
-import { getConfig, updateConfig, getSystemPrompt, ollamaListModels } from '../../lib/tauri'
+import type { BatConfig, LocalLlmModel } from '../../types'
+import { getConfig, updateConfig, getSystemPrompt, localLlmListModels } from '../../lib/tauri'
 
 const ANTHROPIC_MODELS = [
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Fast & capable', provider: 'Anthropic' },
@@ -24,7 +24,7 @@ export function AgentConfigPage() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
+  const [ollamaModels, setOllamaModels] = useState<LocalLlmModel[]>([])
 
   const hasAnthropicKey = !!(config?.api_keys?.anthropic)
   const hasOpenAIKey = !!(config?.api_keys?.openai)
@@ -34,10 +34,10 @@ export function AgentConfigPage() {
       .then(setConfig)
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false))
-    // Try to fetch Ollama models (non-blocking)
-    ollamaListModels()
+    // Try to fetch local LLM models (non-blocking — service may not be running)
+    localLlmListModels()
       .then(setOllamaModels)
-      .catch(() => {}) // Ollama may not be running
+      .catch(() => {})
   }, [])
 
   const handleSave = async (e: React.FormEvent) => {

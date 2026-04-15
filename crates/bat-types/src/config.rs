@@ -30,10 +30,10 @@ pub struct ApiKeys {
     /// ElevenLabs API key — used for ElevenLabs TTS voices.
     #[serde(default)]
     pub elevenlabs: Option<String>,
-    /// Ollama endpoint URL — used for local LLM inference (no API key needed).
+    /// Local LLM endpoint URL — used for Ollama, LM Studio, or any OpenAI-compatible local server.
     /// Default: http://localhost:11434
-    #[serde(default)]
-    pub ollama_endpoint: Option<String>,
+    #[serde(default, alias = "ollama_endpoint")]
+    pub local_llm_endpoint: Option<String>,
 }
 
 impl ApiKeys {
@@ -52,12 +52,18 @@ impl ApiKeys {
         std::env::var("ELEVENLABS_API_KEY").ok().or_else(|| self.elevenlabs.clone())
     }
 
-    /// Get the Ollama endpoint URL, checking env var first.
+    /// Get the local LLM endpoint URL, checking env var first.
     /// Returns the configured endpoint or the default localhost URL.
-    pub fn ollama_endpoint(&self) -> String {
+    pub fn local_llm_endpoint(&self) -> String {
         std::env::var("OLLAMA_ENDPOINT").ok()
-            .or_else(|| self.ollama_endpoint.clone())
+            .or_else(|| self.local_llm_endpoint.clone())
             .unwrap_or_else(|| "http://localhost:11434".to_string())
+    }
+
+    /// Backward-compat alias.
+    #[inline]
+    pub fn ollama_endpoint(&self) -> String {
+        self.local_llm_endpoint()
     }
 
     /// Determine the LLM provider from a model name.
@@ -78,7 +84,28 @@ impl ApiKeys {
 pub enum LlmProvider {
     Anthropic,
     OpenAI,
+    /// Any local LLM (Ollama, LM Studio, etc.)
+    LocalLlm,
+    /// Kept for backward compatibility — maps to LocalLlm.
     Ollama,
+}
+
+/// Which local LLM runtime is detected at the configured endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalLlmProvider {
+    Ollama,
+    LmStudio,
+    Unknown,
+}
+
+impl LocalLlmProvider {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Ollama => "Ollama",
+            Self::LmStudio => "LM Studio",
+            Self::Unknown => "Unknown",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

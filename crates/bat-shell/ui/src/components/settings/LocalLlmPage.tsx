@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { BatConfig, OllamaModel } from '../../types'
-import { getConfig, updateConfig, ollamaListModels, ollamaStatus } from '../../lib/tauri'
+import type { BatConfig, LocalLlmModel, LocalLlmProvider } from '../../types'
+import { getConfig, updateConfig, localLlmListModels, localLlmStatus, localLlmDetectProvider } from '../../lib/tauri'
 
-export function OllamaPage() {
+export function LocalLlmPage() {
   const [config, setConfig] = useState<BatConfig | null>(null)
   const [endpoint, setEndpoint] = useState('http://localhost:11434')
   const [connected, setConnected] = useState<boolean | null>(null)
-  const [models, setModels] = useState<OllamaModel[]>([])
+  const [provider, setProvider] = useState<LocalLlmProvider | null>(null)
+  const [models, setModels] = useState<LocalLlmModel[]>([])
   const [loading, setLoading] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -14,7 +15,7 @@ export function OllamaPage() {
   useEffect(() => {
     getConfig().then(cfg => {
       setConfig(cfg)
-      setEndpoint(cfg.api_keys?.ollama_endpoint || 'http://localhost:11434')
+      setEndpoint(cfg.api_keys?.local_llm_endpoint || cfg.api_keys?.ollama_endpoint || 'http://localhost:11434')
     })
   }, [])
 
@@ -22,16 +23,22 @@ export function OllamaPage() {
     setLoading(true)
     setError(null)
     try {
-      const status = await ollamaStatus()
+      const status = await localLlmStatus()
       setConnected(status)
       if (status) {
-        const modelList = await ollamaListModels()
+        const [detectedProvider, modelList] = await Promise.all([
+          localLlmDetectProvider(),
+          localLlmListModels(),
+        ])
+        setProvider(detectedProvider)
         setModels(modelList)
       } else {
+        setProvider(null)
         setModels([])
       }
     } catch (e) {
       setConnected(false)
+      setProvider(null)
       setModels([])
       setError(String(e))
     } finally {
@@ -49,7 +56,7 @@ export function OllamaPage() {
       ...config,
       api_keys: {
         ...config.api_keys,
-        ollama_endpoint: endpoint || null,
+        local_llm_endpoint: endpoint || null,
       },
     }
     await updateConfig(updated)
@@ -60,8 +67,8 @@ export function OllamaPage() {
     setTimeout(checkConnection, 500)
   }
 
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '—'
+  const formatSize = (bytes: number | null) => {
+    if (!bytes || bytes === 0) return '—'
     const gb = bytes / (1024 * 1024 * 1024)
     if (gb >= 1) return `${gb.toFixed(1)} GB`
     const mb = bytes / (1024 * 1024)
@@ -73,9 +80,9 @@ export function OllamaPage() {
   return (
     <div className="p-4 space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-zinc-200">Local LLM (Ollama)</h3>
+        <h3 className="text-sm font-semibold text-zinc-200">Local LLM</h3>
         <p className="text-xs text-zinc-500 mt-1">
-          Connect to a local Ollama instance for private, offline AI inference. No API key needed.
+          Connect to a local LLM by providing the endpoint URL. Supports Ollama and LM Studio — more to come.
         </p>
       </div>
 
@@ -87,7 +94,8 @@ export function OllamaPage() {
         }`} />
         <span className="text-sm text-zinc-300">
           {connected === null ? 'Checking...' :
-           connected ? 'Connected' : 'Disconnected'}
+           connected && provider ? `Connected — ${provider}` :
+           connected ? 'Connected' : 'Not connected'}
         </span>
         <button
           onClick={checkConnection}
@@ -118,10 +126,7 @@ export function OllamaPage() {
           />
         </div>
         <p className="text-[10px] text-zinc-600">
-          Default: http://localhost:11434 · Install Ollama from{' '}
-          <a href="https://ollama.com" className="text-[#39FF14] hover:underline" target="_blank">
-            ollama.com
-          </a>
+          Ollama default: http://localhost:11434 · LM Studio default: http://localhost:1234
         </p>
       </div>
 
@@ -140,22 +145,24 @@ export function OllamaPage() {
           <div>
             <h4 className="text-sm font-medium text-zinc-300">Available Models</h4>
             <p className="text-xs text-zinc-500 mt-0.5">
-              These models are installed locally and can be selected in Agent Config.
+              These models are available locally and can be selected in Agent Config.
             </p>
           </div>
 
           {models.length === 0 ? (
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 text-center">
-              <p className="text-sm text-zinc-500">No models installed.</p>
-              <p className="text-xs text-zinc-600 mt-1">
-                Run <code className="bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ollama pull llama3.2</code> to install one.
-              </p>
+              <p className="text-sm text-zinc-500">No models found.</p>
+              {provider === 'Ollama' && (
+                <p className="text-xs text-zinc-600 mt-1">
+                  Run <code className="bg-zinc-800 px-1.5 py-0.5 rounded font-mono">ollama pull llama3.2</code> to install one.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-1.5">
               {models.map(m => (
                 <div
-                  key={m.name}
+                  key={m.id}
                   className="flex items-center justify-between bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-2.5"
                 >
                   <div>
@@ -166,7 +173,7 @@ export function OllamaPage() {
                       </span>
                     )}
                     <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded ml-1.5">
-                      Local
+                      {m.provider}
                     </span>
                   </div>
                   <span className="text-xs text-zinc-500">{formatSize(m.size)}</span>

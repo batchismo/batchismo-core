@@ -58,15 +58,22 @@ pub struct ElevenLabsVoice {
     pub preview_url: Option<String>,
 }
 
-/// An Ollama model entry (returned to the UI for model picker).
+/// A local LLM model entry (returned to the UI for model picker).
+/// Covers both Ollama and LM Studio model listings.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OllamaModel {
+pub struct LocalLlmModel {
+    pub id: String,
     pub name: String,
-    pub size: u64,
+    pub size: Option<u64>,
     pub modified_at: Option<String>,
     pub parameter_size: Option<String>,
+    /// "Ollama", "LM Studio", or "Unknown"
+    pub provider: String,
 }
+
+/// Backward-compat alias.
+pub type OllamaModel = LocalLlmModel;
 
 /// Shared state for routing agent questions through the active Telegram channel.
 /// Created once per `start_channels()` call and threaded through `run_agent_turn`.
@@ -803,49 +810,122 @@ impl Gateway {
         self.config.read().unwrap().agent.onboarding_complete
     }
 
-    // ─── Ollama ────────────────────────────────────────────────────────────
+    // ─── Local LLM (Ollama / LM Studio) ───────────────────────────────────
 
-    /// Check Ollama connectivity and list available models.
-    pub async fn ollama_list_models(&self) -> Result<Vec<OllamaModel>> {
-        let endpoint = self.config.read().unwrap().api_keys.ollama_endpoint();
+    /// Detect which local LLM provider is running at the configured endpoint.
+    /// Returns the provider name: "Ollama", "LM Studio", or "Unknown".
+    pub async fn local_llm_detect_provider(&self) -> Result<String> {
+        let endpoint = self.config.read().unwrap().api_keys.local_llm_endpoint();
+        let base = endpoint.trim_end_matches('/');
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(4))
+            .build()?;
+
+        // Ollama: GET /api/tags returns 200
+        if let Ok(resp) = client.get(&format!("{base}/api/tags")).send().await {
+            if resp.status().is_success() {
+                return Ok("Ollama".to_string());
+            }
+        }
+
+        // LM Studio: GET /v1/models returns 200
+        if let Ok(resp) = client.get(&format!("{base}/v1/models")).send().await {
+            if resp.status().is_success() {
+                return Ok("LM Studio".to_string());
+            }
+        }
+
+        Ok("Unknown".to_string())
+    }
+
+    /// List available models from the local LLM provider.
+    /// Supports both Ollama (/api/tags) and LM Studio (/v1/models).
+    pub async fn local_llm_list_models(&self) -> Result<Vec<LocalLlmModel>> {
+        let endpoint = self.config.read().unwrap().api_keys.local_llm_endpoint();
+        let base = endpoint.trim_end_matches('/');
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
-        let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
-        let resp = client.get(&url).send().await
-            .context("Failed to connect to Ollama")?;
-        if !resp.status().is_success() {
-            anyhow::bail!("Ollama returned status {}", resp.status());
+
+        // Try Ollama first
+        if let Ok(resp) = client.get(&format!("{base}/api/tags")).send().await {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await?;
+                let models = body.get("models").and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter().filter_map(|m| {
+                            let name = m.get("name")?.as_str()?.to_string();
+                            let size = m.get("size").and_then(|v| v.as_u64());
+                            let modified_at = m.get("modified_at").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let parameter_size = m.get("details")
+                                .and_then(|d| d.get("parameter_size"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            Some(LocalLlmModel {
+                                id: name.clone(),
+                                name,
+                                size,
+                                modified_at,
+                                parameter_size,
+                                provider: "Ollama".to_string(),
+                            })
+                        }).collect()
+                    })
+                    .unwrap_or_default();
+                return Ok(models);
+            }
         }
-        let body: serde_json::Value = resp.json().await?;
-        let models = body.get("models").and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter().filter_map(|m| {
-                    let name = m.get("name")?.as_str()?.to_string();
-                    let size = m.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let modified_at = m.get("modified_at").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let parameter_size = m.get("details")
-                        .and_then(|d| d.get("parameter_size"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    Some(OllamaModel { name, size, modified_at, parameter_size })
-                }).collect()
-            })
-            .unwrap_or_default();
-        Ok(models)
+
+        // Try LM Studio (OpenAI-compatible /v1/models)
+        if let Ok(resp) = client.get(&format!("{base}/v1/models")).send().await {
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await?;
+                let models = body.get("data").and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter().filter_map(|m| {
+                            let id = m.get("id")?.as_str()?.to_string();
+                            Some(LocalLlmModel {
+                                id: id.clone(),
+                                name: id,
+                                size: None,
+                                modified_at: None,
+                                parameter_size: None,
+                                provider: "LM Studio".to_string(),
+                            })
+                        }).collect()
+                    })
+                    .unwrap_or_default();
+                return Ok(models);
+            }
+        }
+
+        anyhow::bail!("No local LLM service reachable at {}", endpoint)
     }
 
-    /// Check if Ollama is reachable.
-    pub async fn ollama_status(&self) -> Result<bool> {
-        let endpoint = self.config.read().unwrap().api_keys.ollama_endpoint();
+    /// Check if any local LLM service is reachable at the configured endpoint.
+    pub async fn local_llm_status(&self) -> Result<bool> {
+        let endpoint = self.config.read().unwrap().api_keys.local_llm_endpoint();
+        let base = endpoint.trim_end_matches('/');
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(3))
             .build()?;
-        let url = format!("{}/api/tags", endpoint.trim_end_matches('/'));
-        match client.get(&url).send().await {
-            Ok(resp) => Ok(resp.status().is_success()),
-            Err(_) => Ok(false),
+        if let Ok(resp) = client.get(&format!("{base}/api/tags")).send().await {
+            if resp.status().is_success() { return Ok(true); }
         }
+        if let Ok(resp) = client.get(&format!("{base}/v1/models")).send().await {
+            if resp.status().is_success() { return Ok(true); }
+        }
+        Ok(false)
+    }
+
+    /// Backward-compat alias for `local_llm_list_models`.
+    pub async fn ollama_list_models(&self) -> Result<Vec<LocalLlmModel>> {
+        self.local_llm_list_models().await
+    }
+
+    /// Backward-compat alias for `local_llm_status`.
+    pub async fn ollama_status(&self) -> Result<bool> {
+        self.local_llm_status().await
     }
 
     /// Validate an Anthropic API key by making a minimal API call.
@@ -1872,7 +1952,7 @@ fn build_agent_env(cfg: &BatConfig) -> ipc::AgentEnv {
     ipc::AgentEnv {
         anthropic_key: cfg.api_keys.anthropic_key(),
         openai_key: cfg.api_keys.openai_key(),
-        ollama_endpoint: Some(cfg.api_keys.ollama_endpoint()),
+        local_llm_endpoint: Some(cfg.api_keys.local_llm_endpoint()),
     }
 }
 
@@ -1894,8 +1974,8 @@ fn validate_provider_key(model: &str, env: &ipc::AgentEnv) -> Result<()> {
                 );
             }
         }
-        LlmProvider::Ollama => {
-            // Ollama doesn't need an API key — just an endpoint
+        LlmProvider::LocalLlm | LlmProvider::Ollama => {
+            // Local LLM (Ollama / LM Studio) doesn't need an API key — just an endpoint
         }
     }
     Ok(())
